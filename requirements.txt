@@ -1,0 +1,5 @@
+# Productify Node Dependencies
+# Core functionality runs with ZERO external dependencies on Python 3.10+ standard library.
+# Optional enhancements:
+# psutil>=5.9.0      # Optional: Enhanced process and disk IO telemetry
+# pynvml>=11.5.0     # Optional: Direct NVIDIA driver API bindings
