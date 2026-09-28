@@ -169,9 +169,16 @@ class ProductifyNodeApp(tk.Tk):
 
 
 def start_gui():
-    app = ProductifyNodeApp()
-    app.mainloop()
+    try:
+        import customtkinter
+        from productify_node.gui.ctk_app import start_app as start_modern_app
+        start_modern_app()
+    except Exception as e:
+        logger.info(f"CustomTkinter not loaded ({e}), using standard Tkinter GUI.")
+        app = ProductifyNodeApp()
+        app.mainloop()
 
 
 if __name__ == "__main__":
     start_gui()
+
