@@ -16,6 +16,8 @@ from productify_node.state import node_state
 from productify_node.config import config
 from productify_node.tunnel import tunnel_daemon
 from productify_node.bridge.local_server import local_bridge
+from productify_node.thermal_guard import thermal_guard
+from productify_node.tray import system_tray
 
 logger = logging.getLogger("productify_node.gui")
 
@@ -33,6 +35,10 @@ class ProductifyNodeApp(tk.Tk):
         # Start background daemons
         local_bridge.start()
         tunnel_daemon.start()
+        thermal_guard.start()
+        system_tray.start(show_window_cb=self._show_window, exit_cb=self._force_exit)
+
+        self.protocol("WM_DELETE_WINDOW", self._on_close_window)
 
         self._build_header()
         self._build_tabs()
@@ -165,10 +171,33 @@ class ProductifyNodeApp(tk.Tk):
         except Exception:
             pass
         self._update_live_button_state()
-        self.after(6000, self._periodic_tick)
+    def _show_window(self):
+        self.after(0, lambda: (self.deiconify(), self.lift(), self.focus_force()))
+
+    def _on_close_window(self):
+        self.withdraw()
+        system_tray.notify(
+            "Productify Node",
+            "Application minimized to system tray. Workloads and thermal guard remain active."
+        )
+
+    def _force_exit(self):
+        thermal_guard.stop()
+        tunnel_daemon.stop()
+        local_bridge.stop()
+        self.after(0, self.destroy)
 
 
 def start_gui():
+    """Launch GUI preferring modern Edge WebView2, falling back to CustomTkinter and Tkinter."""
+    try:
+        from productify_node.gui.webview_app import start_webview
+        logger.info("Initializing Edge WebView2 Desktop Hypervisor...")
+        start_webview()
+        return
+    except Exception as e:
+        logger.warning(f"Edge WebView2 launcher skipped ({e}). Falling back to CustomTkinter...")
+
     try:
         import customtkinter
         from productify_node.gui.ctk_app import start_app as start_modern_app

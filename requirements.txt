@@ -1,5 +1,10 @@
 # Productify Node Dependencies
-# Core functionality runs with ZERO external dependencies on Python 3.10+ standard library.
-# Optional enhancements:
-# psutil>=5.9.0      # Optional: Enhanced process and disk IO telemetry
-# pynvml>=11.5.0     # Optional: Direct NVIDIA driver API bindings
+# Desktop Hypervisor GUI, System Tray, and Hardware Guard:
+pystray>=0.19.5
+pillow>=10.0.0
+pywebview>=5.0.0
+customtkinter>=5.2.0
+
+# Optional performance enhancements:
+# psutil>=5.9.0
+# pynvml>=11.5.0
