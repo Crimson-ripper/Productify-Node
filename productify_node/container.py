@@ -1,6 +1,7 @@
 """Docker container manager with strict resource bounding and zero-persistence wiping."""
 
 import os
+import sys
 import shutil
 import subprocess
 import logging
@@ -11,15 +12,29 @@ logger = logging.getLogger("productify_node.container")
 
 PODS_ROOT = os.path.expanduser(os.path.join("~", ".productify", "pods"))
 
+CREATE_NO_WINDOW = 0x08000000
+
+def safe_run(cmd, timeout=15, **kwargs):
+    """Run subprocess guaranteed to never display or flash console windows on Windows."""
+    if os.name == "nt":
+        kwargs["creationflags"] = kwargs.get("creationflags", 0) | CREATE_NO_WINDOW
+        si = kwargs.get("startupinfo")
+        if si is None:
+            si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0  # SW_HIDE
+        kwargs["startupinfo"] = si
+    return subprocess.run(cmd, timeout=timeout, **kwargs)
+
 
 def ensure_pods_dir():
     os.makedirs(PODS_ROOT, exist_ok=True)
 
 
 def probe_docker():
-    """Verify Docker availability and NVIDIA GPU passthrough."""
+    """Verify Docker availability and NVIDIA GPU passthrough silently."""
     try:
-        res = subprocess.run(["docker", "version"], capture_output=True, text=True, timeout=5)
+        res = safe_run(["docker", "version"], capture_output=True, text=True, timeout=3)
         docker_available = (res.returncode == 0)
     except Exception:
         docker_available = False
@@ -27,11 +42,11 @@ def probe_docker():
     gpu_supported = False
     if docker_available:
         try:
-            res_gpu = subprocess.run(
+            res_gpu = safe_run(
                 ["docker", "run", "--rm", "--gpus", "all", "hello-world"],
                 capture_output=True,
                 text=True,
-                timeout=8
+                timeout=5
             )
             gpu_supported = (res_gpu.returncode == 0)
         except Exception:
@@ -49,7 +64,6 @@ class ContainerManager:
 
     def start_pod(self, instance_id, docker_image="python:3.11-slim", **kwargs):
         """Provision workspace and spin up container with strict memory and CPU limits."""
-        # Check node state
         if not node_state.is_live:
             return {"ok": False, "error": "Node is currently PAUSED. New workloads cannot be started."}
 
@@ -75,7 +89,7 @@ class ContainerManager:
                 + ["-v", f"{pod_dir}:/workspace", docker_image, "sleep", "infinity"]
             )
             try:
-                res = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
+                res = safe_run(cmd, capture_output=True, text=True, timeout=25)
                 if res.returncode == 0:
                     container_id = res.stdout.strip()[:12]
                     docker_started = True
@@ -127,7 +141,7 @@ class ContainerManager:
                 else:
                     exec_cmd = ["docker", "exec", container_name, "sh", "-c", command]
 
-                res = subprocess.run(exec_cmd, capture_output=True, text=True, timeout=20)
+                res = safe_run(exec_cmd, capture_output=True, text=True, timeout=20)
                 return {
                     "ok": True,
                     "stdout": res.stdout,
@@ -141,12 +155,11 @@ class ContainerManager:
 
         # Process fallback
         try:
-            import sys
             script = code if code else (command[6:].strip() if command and command.startswith("python") else command)
             if script and script.startswith("-c"):
                 script = script[2:].strip().strip('"').strip("'")
 
-            res = subprocess.run(
+            res = safe_run(
                 [sys.executable, "-c", script],
                 capture_output=True,
                 text=True,
@@ -163,14 +176,13 @@ class ContainerManager:
         """Force-stop container and perform zero-persistence disk wipe."""
         container_name = f"prod-{instance_id}"
         try:
-            subprocess.run(["docker", "rm", "-f", container_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+            safe_run(["docker", "rm", "-f", container_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
         except Exception:
             pass
 
         pod_dir = os.path.join(PODS_ROOT, instance_id)
         if os.path.exists(pod_dir):
             try:
-                # Cryptographic zero-fill of files before deletion
                 for root, dirs, files in os.walk(pod_dir):
                     for f in files:
                         fp = os.path.join(root, f)
