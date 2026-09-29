@@ -311,8 +311,18 @@ def probe_gpu():
         }
 
 
-def get_full_telemetry():
-    """Aggregate complete system telemetry report without creating subprocesses."""
+import time
+
+_CACHED_TELEMETRY = None
+_CACHED_TELEMETRY_TIME = 0.0
+
+def get_full_telemetry(force_refresh=False):
+    """Aggregate complete system telemetry report with 1.5s TTL micro-cache for zero latency."""
+    global _CACHED_TELEMETRY, _CACHED_TELEMETRY_TIME
+    now = time.time()
+    if not force_refresh and _CACHED_TELEMETRY is not None and (now - _CACHED_TELEMETRY_TIME) < 1.5:
+        return _CACHED_TELEMETRY
+
     ram = probe_ram()
     disk = probe_disk()
     cpu = probe_cpu()
@@ -321,7 +331,7 @@ def get_full_telemetry():
     max_safe_ram = max(0.5, round(ram["total_gb"] - 1.5, 1))
     max_safe_disk = max(5.0, round(disk["free_gb"] - 5.0, 1))
 
-    return {
+    _CACHED_TELEMETRY = {
         "os": f"{platform.system()} {platform.release()} ({platform.machine()})",
         "hostname": platform.node(),
         "ram": ram,
@@ -331,3 +341,5 @@ def get_full_telemetry():
         "max_safe_ram_gb": max_safe_ram,
         "max_safe_disk_gb": max_safe_disk,
     }
+    _CACHED_TELEMETRY_TIME = now
+    return _CACHED_TELEMETRY

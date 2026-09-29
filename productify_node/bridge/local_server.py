@@ -2,7 +2,7 @@
 
 import json
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import logging
 from productify_node.config import config
 from productify_node.state import node_state
@@ -145,15 +145,20 @@ class LocalBridgeServer:
         self.port = port
         self.server = None
         self.thread = None
+        self._is_ready = threading.Event()
 
     def start(self):
         try:
-            self.server = HTTPServer(("127.0.0.1", self.port), BridgeHandler)
+            self.server = ThreadingHTTPServer(("127.0.0.1", self.port), BridgeHandler)
             self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
             self.thread.start()
+            self._is_ready.set()
             node_state.log(f"Local bridge server listening on http://127.0.0.1:{self.port}", "INFO")
         except Exception as e:
             logger.warning(f"Could not bind bridge server on port {self.port}: {e}")
+
+    def wait_until_ready(self, timeout=2.0):
+        return self._is_ready.wait(timeout)
 
     def stop(self):
         if self.server:
@@ -523,11 +528,18 @@ HTML_UI_PAGE = """<!DOCTYPE html>
       } catch (e) {}
     }
 
+    let lastLogSig = "";
     async function pollLogs() {
+      const panel = document.getElementById('tab-logs');
+      if (!panel || !panel.classList.contains('active')) return;
       try {
         const res = await fetch('/logs');
         const d = await res.json();
-        if (d.logs) {
+        if (d.logs && d.logs.length > 0) {
+          const sig = d.logs.length + "-" + d.logs[d.logs.length - 1].time + "-" + d.logs[d.logs.length - 1].text;
+          if (sig === lastLogSig) return;
+          lastLogSig = sig;
+
           const t = document.getElementById('termLogs');
           t.innerHTML = d.logs.map(l => 
             `<div class="log-line ${l.level}"><span class="time">[${l.time}]</span> ${l.text}</div>`
@@ -539,7 +551,7 @@ HTML_UI_PAGE = """<!DOCTYPE html>
 
     poll();
     setInterval(poll, 3000);
-    setInterval(pollLogs, 4000);
+    setInterval(pollLogs, 3000);
   </script>
 </body>
 </html>

@@ -54,7 +54,17 @@ class ReverseTunnelDaemon:
             poll_url = f"{base_url}/api/tunnel/host/{rental_id}/poll"
 
             try:
-                data_bytes = json.dumps({"node_id": config.node_id}).encode("utf-8")
+                from productify_node.thermal_guard import thermal_guard
+                tz_name = time.tzname[time.daylight] if time.daylight and len(time.tzname) > 1 else time.tzname[0]
+                heartbeat_payload = {
+                    "node_id": config.node_id,
+                    "is_live": node_state.is_live,
+                    "status": node_state.status,
+                    "active_pods": len(node_state.get_active_pods()),
+                    "client_timezone": tz_name,
+                    "thermal": thermal_guard.get_status(),
+                }
+                data_bytes = json.dumps(heartbeat_payload).encode("utf-8")
                 req = urllib.request.Request(
                     poll_url,
                     data=data_bytes,
@@ -72,7 +82,11 @@ class ReverseTunnelDaemon:
                         body = json.loads(resp.read().decode())
                         messages = body.get("messages", [])
                         for msg in messages:
-                            self._dispatch_rpc(msg, base_url, rental_id)
+                            threading.Thread(
+                                target=self._dispatch_rpc,
+                                args=(msg, base_url, rental_id),
+                                daemon=True
+                            ).start()
             except urllib.error.HTTPError as e:
                 # 404 means rental node is not registered yet on platform
                 self._connected = False

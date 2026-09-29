@@ -77,6 +77,7 @@ class ProductifyWebViewApp:
             show_window_cb=self.show_window,
             exit_cb=self.force_exit
         )
+        local_bridge.wait_until_ready(1.5)
 
         url = f"http://127.0.0.1:{self.port}/ui"
         self.window = webview.create_window(
