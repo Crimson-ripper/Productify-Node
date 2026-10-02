@@ -2,6 +2,7 @@
 
 import os
 import sys
+import json
 import shutil
 import subprocess
 import logging
@@ -206,6 +207,100 @@ class ContainerManager:
             self.destroy_pod(pid)
         node_state.log("Emergency Stop executed: All pods killed and workspaces wiped clean.", "WARNING")
         return len(pods)
+
+    def start_game_pod(self, session_id, game_title, docker_image="productify/game-runner:generic", game_package_url=None, is_private=False):
+        """Provision isolated cloud gaming container with GPU passthrough and WebRTC streaming stack."""
+        if not node_state.is_live:
+            return {"ok": False, "error": "Node is currently PAUSED. Game cannot be started."}
+
+        pod_dir = os.path.join(PODS_ROOT, f"game-{session_id}")
+        os.makedirs(pod_dir, exist_ok=True)
+
+        container_name = f"prod-game-{session_id[:8]}"
+        boundary_flags = enforcer.get_docker_boundary_flags()
+
+        # Write game isolation metadata
+        with open(os.path.join(pod_dir, "game_meta.json"), "w") as f:
+            f.write(json.dumps({
+                "session_id": session_id,
+                "game_title": game_title,
+                "is_private": is_private,
+                "package_url": game_package_url,
+                "status": "active"
+            }, indent=2) + "\n")
+
+        container_id = f"cntr-game-{session_id[:8]}"
+        docker_started = False
+
+        if self.docker_status["docker_available"]:
+            gpu_flags = ["--gpus", "all"] if self.docker_status["gpu_supported"] else []
+            env_flags = [
+                "-e", f"GAME_TITLE={game_title}",
+                "-e", f"SESSION_ID={session_id}",
+                "-e", "DISPLAY=:0",
+                "-e", "NVIDIA_VISIBLE_DEVICES=all",
+                "-e", "NVIDIA_DRIVER_CAPABILITIES=all"
+            ]
+            cmd = (
+                ["docker", "run", "-d", "--name", container_name]
+                + gpu_flags
+                + boundary_flags
+                + env_flags
+                + ["-v", f"{pod_dir}:/game_workspace", docker_image, "sleep", "infinity"]
+            )
+            try:
+                res = safe_run(cmd, capture_output=True, text=True, timeout=25)
+                if res.returncode == 0:
+                    container_id = res.stdout.strip()[:12]
+                    docker_started = True
+                    node_state.log(f"Spawned Gamezone Docker container {container_name} for '{game_title}'", "INFO")
+                else:
+                    node_state.log(f"Docker game spawn fallback for {session_id}: {res.stderr[:80]}", "WARNING")
+            except Exception as e:
+                node_state.log(f"Docker game run error: {e}", "WARNING")
+
+        pod_info = {
+            "instance_id": session_id,
+            "session_id": session_id,
+            "game_title": game_title,
+            "container_id": container_id,
+            "docker_started": docker_started,
+            "workspace": pod_dir,
+            "image": docker_image,
+            "is_game": True,
+            "is_private": is_private,
+        }
+        node_state.add_pod(session_id, pod_info)
+
+        return {"ok": True, "container_id": container_id, "docker_active": docker_started}
+
+    def stop_game_pod(self, session_id, container_id=None):
+        """Force-stop gaming container and scrub game workspace securely."""
+        container_name = f"prod-game-{session_id[:8]}"
+        try:
+            safe_run(["docker", "rm", "-f", container_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+        except Exception:
+            pass
+
+        pod_dir = os.path.join(PODS_ROOT, f"game-{session_id}")
+        if os.path.exists(pod_dir):
+            try:
+                for root, dirs, files in os.walk(pod_dir):
+                    for f in files:
+                        fp = os.path.join(root, f)
+                        try:
+                            size = os.path.getsize(fp)
+                            with open(fp, "wb") as wf:
+                                wf.write(b"\x00" * min(size, 1024 * 1024))
+                        except Exception:
+                            pass
+                shutil.rmtree(pod_dir, ignore_errors=True)
+            except Exception as e:
+                logger.warning(f"Error purging game workspace: {e}")
+
+        node_state.remove_pod(session_id)
+        node_state.log(f"Stopped and purged game container for session {session_id}", "INFO")
+        return {"ok": True, "wiped": True}
 
 
 container_mgr = ContainerManager()

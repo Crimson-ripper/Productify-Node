@@ -126,6 +126,23 @@ class ReverseTunnelDaemon:
                 res = container_mgr.destroy_pod(payload.get("instance_id"))
                 reply_data.update(res)
 
+            elif action == "launch_game_container":
+                res = container_mgr.start_game_pod(
+                    session_id=payload.get("session_id", "default"),
+                    game_title=payload.get("game_title", "Cloud Game"),
+                    docker_image=payload.get("docker_image", "productify/game-runner:generic"),
+                    game_package_url=payload.get("game_package_url"),
+                    is_private=payload.get("is_private", False),
+                )
+                reply_data.update(res)
+
+            elif action == "stop_game_container":
+                res = container_mgr.stop_game_pod(
+                    session_id=payload.get("session_id"),
+                    container_id=payload.get("container_id"),
+                )
+                reply_data.update(res)
+
             else:
                 reply_data = {"msg_id": msg_id, "ok": False, "error": f"Unknown action: {action}"}
         except Exception as e:
