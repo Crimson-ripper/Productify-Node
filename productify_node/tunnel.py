@@ -127,18 +127,40 @@ class ReverseTunnelDaemon:
                 reply_data.update(res)
 
             elif action == "launch_game_container":
+                session_id = payload.get("session_id", "default")
+                game_title = payload.get("game_title", "Cloud Game")
                 res = container_mgr.start_game_pod(
-                    session_id=payload.get("session_id", "default"),
-                    game_title=payload.get("game_title", "Cloud Game"),
+                    session_id=session_id,
+                    game_title=game_title,
                     docker_image=payload.get("docker_image", "productify/game-runner:generic"),
                     game_package_url=payload.get("game_package_url"),
                     is_private=payload.get("is_private", False),
                 )
                 reply_data.update(res)
 
+                # Launch Sunshine streaming daemon for low-latency gaming
+                try:
+                    from productify_node.streaming.sunshine_mgr import sunshine_mgr
+                    stream_res = sunshine_mgr.start_session(
+                        session_id=session_id,
+                        game_title=game_title,
+                        launch_cmd=payload.get("launch_cmd"),
+                        is_private=payload.get("is_private", False),
+                    )
+                    reply_data["streaming"] = stream_res
+                except Exception as ex:
+                    node_state.log(f"Sunshine streaming start skipped: {ex}", "WARNING")
+                    reply_data["streaming"] = {"ok": False, "error": str(ex)}
+
             elif action == "stop_game_container":
+                session_id = payload.get("session_id")
+                try:
+                    from productify_node.streaming.sunshine_mgr import sunshine_mgr
+                    sunshine_mgr.stop_session(session_id)
+                except Exception:
+                    pass
                 res = container_mgr.stop_game_pod(
-                    session_id=payload.get("session_id"),
+                    session_id=session_id,
                     container_id=payload.get("container_id"),
                 )
                 reply_data.update(res)
