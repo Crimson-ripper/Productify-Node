@@ -15,6 +15,12 @@ from productify_node.tunnel import tunnel_daemon
 from productify_node.bridge.local_server import local_bridge
 from productify_node.thermal_guard import thermal_guard
 from productify_node.tray import system_tray
+from productify_node.streaming.diagnostics import run_diagnostics
+from productify_node.streaming.sunshine_mgr import sunshine_mgr
+from productify_node.streaming.installer import (
+    INSTALL_STATE,
+    start_installation_async,
+)
 
 # Visual theme constants
 ctk.set_appearance_mode("dark")
@@ -128,6 +134,7 @@ class ProductifyModernApp(ctk.CTk):
         self.seg_btn = ctk.CTkSegmentedButton(
             nav_box,
             values=[
+                "🎮 Cloud Gaming Stack",
                 "📊 Hardware Dashboard",
                 "🛡️ Memory & Space Allocation",
                 "🔑 Authentication",
@@ -142,12 +149,16 @@ class ProductifyModernApp(ctk.CTk):
             unselected_hover_color="#1c232f",
             corner_radius=10
         )
-        self.seg_btn.set("📊 Hardware Dashboard")
+        self.seg_btn.set("🎮 Cloud Gaming Stack")
         self.seg_btn.pack(fill="x")
 
     def _build_tabs(self):
         self.content_container = ctk.CTkFrame(self, fg_color="transparent")
         self.content_container.pack(fill="both", expand=True, padx=16, pady=(0, 10))
+
+        # 0. Gaming Tab Frame (Merged Installer & Streaming)
+        self.frame_gaming = ctk.CTkFrame(self.content_container, fg_color=BG_CARD, corner_radius=14, border_width=1, border_color=BORDER_COLOR)
+        self._init_gaming_tab()
 
         # 1. Dashboard Tab Frame
         self.frame_dash = ctk.CTkFrame(self.content_container, fg_color=BG_CARD, corner_radius=14, border_width=1, border_color=BORDER_COLOR)
@@ -166,7 +177,171 @@ class ProductifyModernApp(ctk.CTk):
         self._init_logs_tab()
 
         # Show initial tab
-        self.frame_dash.pack(fill="both", expand=True)
+        self.frame_gaming.pack(fill="both", expand=True)
+        self.after(500, self._refresh_gaming_status)
+
+    def _init_gaming_tab(self):
+        f = self.frame_gaming
+        scroll = ctk.CTkScrollableFrame(f, fg_color="transparent")
+        scroll.pack(fill="both", expand=True, padx=20, pady=16)
+
+        # Hero Banner
+        hero = ctk.CTkFrame(scroll, fg_color=BG_CARD_LIGHT, corner_radius=12, border_width=1, border_color=BORDER_COLOR)
+        hero.pack(fill="x", pady=(0, 14))
+
+        ctk.CTkLabel(
+            hero,
+            text="🎮 CLOUD GAMING HYPERVISOR & 1-CLICK INSTALLER\n"
+                 "Equip your machine with the Sunshine GameStream engine and ViGEmBus virtual controller driver.\n"
+                 "Stream your NVIDIA GPU over the public WAN to remote players at <25ms latency with 60–120 FPS.",
+            font=ctk.CTkFont(size=12),
+            text_color="#e2e8f0",
+            justify="left"
+        ).pack(anchor="w", padx=18, pady=14)
+
+        # 4 Diagnostic Cards Grid
+        grid = ctk.CTkFrame(scroll, fg_color="transparent")
+        grid.pack(fill="x", pady=6)
+        grid.grid_columnconfigure(0, weight=1)
+        grid.grid_columnconfigure(1, weight=1)
+
+        # Card 1: Sunshine
+        c1 = ctk.CTkFrame(grid, fg_color=BG_CARD_LIGHT, corner_radius=10, border_width=1, border_color=BORDER_COLOR)
+        c1.grid(row=0, column=0, padx=6, pady=6, sticky="nsew")
+        ctk.CTkLabel(c1, text="■ SUNSHINE ENGINE (GPL v3)", font=ctk.CTkFont(size=11, weight="bold"), text_color=ACCENT_CYAN).pack(anchor="w", padx=14, pady=(10, 2))
+        self.lbl_sun_status = ctk.CTkLabel(c1, text="Probing...", font=ctk.CTkFont(size=14, weight="bold"))
+        self.lbl_sun_status.pack(anchor="w", padx=14, pady=(0, 10))
+
+        # Card 2: ViGEmBus
+        c2 = ctk.CTkFrame(grid, fg_color=BG_CARD_LIGHT, corner_radius=10, border_width=1, border_color=BORDER_COLOR)
+        c2.grid(row=0, column=1, padx=6, pady=6, sticky="nsew")
+        ctk.CTkLabel(c2, text="■ VIRTUAL GAMEPAD (ViGEmBus)", font=ctk.CTkFont(size=11, weight="bold"), text_color=ACCENT_LIME).pack(anchor="w", padx=14, pady=(10, 2))
+        self.lbl_vig_status = ctk.CTkLabel(c2, text="Probing...", font=ctk.CTkFont(size=14, weight="bold"))
+        self.lbl_vig_status.pack(anchor="w", padx=14, pady=(0, 10))
+
+        # Card 3: Firewall
+        c3 = ctk.CTkFrame(grid, fg_color=BG_CARD_LIGHT, corner_radius=10, border_width=1, border_color=BORDER_COLOR)
+        c3.grid(row=1, column=0, padx=6, pady=6, sticky="nsew")
+        ctk.CTkLabel(c3, text="■ WINDOWS FIREWALL (47989/47990)", font=ctk.CTkFont(size=11, weight="bold"), text_color=ACCENT_GREEN).pack(anchor="w", padx=14, pady=(10, 2))
+        self.lbl_fw_status = ctk.CTkLabel(c3, text="Probing...", font=ctk.CTkFont(size=14, weight="bold"))
+        self.lbl_fw_status.pack(anchor="w", padx=14, pady=(0, 10))
+
+        # Card 4: WAN IP
+        c4 = ctk.CTkFrame(grid, fg_color=BG_CARD_LIGHT, corner_radius=10, border_width=1, border_color=BORDER_COLOR)
+        c4.grid(row=1, column=1, padx=6, pady=6, sticky="nsew")
+        ctk.CTkLabel(c4, text="■ PUBLIC WAN REACHABILITY", font=ctk.CTkFont(size=11, weight="bold"), text_color=ACCENT_AMBER).pack(anchor="w", padx=14, pady=(10, 2))
+        self.lbl_wan_status = ctk.CTkLabel(c4, text="Detecting...", font=ctk.CTkFont(size=14, weight="bold"))
+        self.lbl_wan_status.pack(anchor="w", padx=14, pady=(0, 10))
+
+        # Action Buttons
+        btn_box = ctk.CTkFrame(scroll, fg_color="transparent")
+        btn_box.pack(fill="x", pady=16)
+
+        self.btn_install_gaming = ctk.CTkButton(
+            btn_box,
+            text="⚡ 1-Click Install / Repair Gaming Stack",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color="#00a3cc",
+            hover_color="#00b4e0",
+            text_color="#000000",
+            height=40,
+            corner_radius=8,
+            command=self._start_gaming_install
+        )
+        self.btn_install_gaming.pack(side="left", padx=(0, 10))
+
+        self.btn_test_stream = ctk.CTkButton(
+            btn_box,
+            text="🚀 Start Test Stream",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=BG_CARD_LIGHT,
+            hover_color="#2b3545",
+            height=40,
+            corner_radius=8,
+            command=self._test_stream_start
+        )
+        self.btn_test_stream.pack(side="left", padx=(0, 10))
+
+        self.btn_stop_stream = ctk.CTkButton(
+            btn_box,
+            text="🛑 Stop Stream",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#ef4444",
+            hover_color="#dc2626",
+            height=40,
+            corner_radius=8,
+            command=self._test_stream_stop
+        )
+        self.btn_stop_stream.pack(side="left")
+
+        # Feedback & Live Stream Session Details
+        self.gaming_feedback = ctk.CTkLabel(scroll, text="", font=ctk.CTkFont(size=12), text_color=ACCENT_CYAN, wraplength=550)
+        self.gaming_feedback.pack(anchor="w", pady=8)
+
+    def _refresh_gaming_status(self):
+        try:
+            diag = run_diagnostics()
+            # Sunshine
+            sun = diag.get("sunshine", {})
+            if sun.get("installed"):
+                self.lbl_sun_status.configure(text="Installed (GPL v3 Ready)", text_color=ACCENT_GREEN)
+            else:
+                self.lbl_sun_status.configure(text="Missing (Click Install below)", text_color=ACCENT_RED)
+
+            # ViGEmBus
+            vig = diag.get("vigembus_controller_driver", {})
+            if vig.get("installed"):
+                self.lbl_vig_status.configure(text="Installed & Active", text_color=ACCENT_GREEN)
+            else:
+                self.lbl_vig_status.configure(text="Missing (Click Install below)", text_color=ACCENT_RED)
+
+            # Firewall
+            ports = diag.get("ports_available", {})
+            all_open = all(ports.values()) if ports else False
+            if all_open:
+                self.lbl_fw_status.configure(text="Ports Open (47989/47990)", text_color=ACCENT_GREEN)
+            else:
+                self.lbl_fw_status.configure(text="Configured / Added", text_color=ACCENT_CYAN)
+
+            # WAN IP
+            net = diag.get("network", {})
+            wan_ip = net.get("public_wan_ip", "Detecting...")
+            self.lbl_wan_status.configure(text=f"{wan_ip}", text_color=ACCENT_AMBER)
+        except Exception as e:
+            self.gaming_feedback.configure(text=f"Diagnostics check note: {e}")
+
+    def _start_gaming_install(self):
+        self.btn_install_gaming.configure(state="disabled", text="⏳ Installing Gaming Stack...")
+        self.gaming_feedback.configure(text="Downloading & silently installing ViGEmBus, Sunshine & configuring Firewall...")
+        start_installation_async()
+        self.after(3000, self._check_install_progress)
+
+    def _check_install_progress(self):
+        if INSTALL_STATE.get("is_running"):
+            step = INSTALL_STATE.get("step", "working")
+            prog = INSTALL_STATE.get("progress", 50)
+            self.gaming_feedback.configure(text=f"Installation in progress ({prog}% - {step})...")
+            self.after(2000, self._check_install_progress)
+        else:
+            self.btn_install_gaming.configure(state="normal", text="⚡ 1-Click Install / Repair Gaming Stack")
+            self.gaming_feedback.configure(text="✓ Cloud Gaming Stack installation completed!")
+            self._refresh_gaming_status()
+
+    def _test_stream_start(self):
+        try:
+            res = sunshine_mgr.start_session("test-sandbox", "Productify Gaming Sandbox")
+            if res.get("ok"):
+                self.gaming_feedback.configure(
+                    text=f"Test stream active! Host WAN: {res.get('wan_ip')}:{res.get('port')} · PIN: {res.get('pin')}"
+                )
+            else:
+                self.gaming_feedback.configure(text=f"Could not start stream: {res.get('error')}")
+        except Exception as e:
+            self.gaming_feedback.configure(text=f"Stream error: {e}")
+
+    def _test_stream_stop(self):
+        sunshine_mgr.stop_session()
+        self.gaming_feedback.configure(text="Stream stopped.")
 
     def _init_dashboard_tab(self):
         f = self.frame_dash
@@ -461,15 +636,19 @@ class ProductifyModernApp(ctk.CTk):
 
     # ---------------- Interactions & Callbacks ----------------
     def _on_tab_select(self, val):
+        self.frame_gaming.pack_forget()
         self.frame_dash.pack_forget()
         self.frame_alloc.pack_forget()
         self.frame_auth.pack_forget()
         self.frame_logs.pack_forget()
 
-        if "Dashboard" in val:
+        if "Gaming" in val:
+            self.frame_gaming.pack(fill="both", expand=True)
+            self._refresh_gaming_status()
+        elif "Dashboard" in val:
             self.frame_dash.pack(fill="both", expand=True)
             self._refresh_dashboard_telemetry()
-        elif "Allocation" in val:
+        elif "Allocation" in val or "Memory" in val:
             self.frame_alloc.pack(fill="both", expand=True)
         elif "Authentication" in val:
             self.frame_auth.pack(fill="both", expand=True)

@@ -141,6 +141,12 @@ def configure_firewall():
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     parser = argparse.ArgumentParser(description="Automated Cloud Gaming Host Package Installer")
     parser.add_argument("--check", action="store_true", help="Run diagnostics check only without installing")
     args = parser.parse_args()
@@ -152,6 +158,11 @@ def main():
     if args.check:
         from productify_node.streaming.diagnostics import print_diagnostic_report
         print_diagnostic_report()
+        print("\nPress Enter to exit...")
+        try:
+            input()
+        except Exception:
+            pass
         return
 
     if not is_admin():
@@ -172,6 +183,14 @@ def main():
     print("\n[*] Running final pre-flight verification...")
     from productify_node.streaming.diagnostics import print_diagnostic_report
     print_diagnostic_report()
+
+    print("\n" + "=" * 65)
+    print("  Setup completed! Press Enter to exit.")
+    print("=" * 65)
+    try:
+        input()
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
