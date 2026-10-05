@@ -38,10 +38,14 @@ class BridgeHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self._set_cors(200)
 
-    def do_GET(self):
         if self.path.startswith("/probe") or self.path == "/":
             telemetry = get_full_telemetry()
             thermal = thermal_guard.get_status()
+            try:
+                diag = run_diagnostics()
+            except Exception:
+                diag = {}
+
             data = {
                 "ok": True,
                 "node_id": config.node_id,
@@ -62,6 +66,11 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "allocated_disk_gb": config.disk_limit_gb,
                 "thermal": thermal,
                 "active_pods": len(node_state.get_active_pods()),
+                "gaming_ready": diag.get("ready_for_cloud_gaming", False),
+                "sunshine_installed": diag.get("sunshine", False),
+                "vigem_installed": diag.get("vigem", False),
+                "firewall_ready": diag.get("firewall", False),
+                "wan_ip": diag.get("wan_ip", "127.0.0.1"),
             }
             self._set_cors(200)
             self.wfile.write(json.dumps(data).encode("utf-8"))
@@ -132,15 +141,15 @@ class BridgeHandler(BaseHTTPRequestHandler):
             payload = {}
 
         if self.path == "/tunnel/connect":
-            rental_id = payload.get("rental_id")
-            token = payload.get("token")
+            rental_id = payload.get("rental_id") or payload.get("node_id")
+            token = payload.get("token") or payload.get("pairing_token")
             if rental_id:
                 config.set("rental_id", rental_id)
             if token:
                 config.set("pairing_token", token)
             node_state.set_live()
             self._set_cors(200)
-            self.wfile.write(json.dumps({"ok": True, "status": "LIVE"}).encode("utf-8"))
+            self.wfile.write(json.dumps({"ok": True, "status": "LIVE", "rental_id": rental_id}).encode("utf-8"))
 
         elif self.path == "/toggle":
             new_status = node_state.toggle_live_pause()
