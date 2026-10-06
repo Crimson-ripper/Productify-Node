@@ -30,14 +30,15 @@ class BridgeHandler(BaseHTTPRequestHandler):
     def _set_cors(self, status=200):
         self.send_response(status)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
+        self.send_header("Access-Control-Allow-Headers", "*")
         self.send_header("Content-Type", "application/json")
         self.end_headers()
 
     def do_OPTIONS(self):
         self._set_cors(200)
 
+    def do_GET(self):
         if self.path.startswith("/probe") or self.path == "/":
             telemetry = get_full_telemetry()
             thermal = thermal_guard.get_status()
@@ -207,6 +208,8 @@ class LocalBridgeServer:
         self._is_ready = threading.Event()
 
     def start(self):
+        if self.server is not None:
+            return
         try:
             self.server = ThreadingHTTPServer(("127.0.0.1", self.port), BridgeHandler)
             self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -221,7 +224,12 @@ class LocalBridgeServer:
 
     def stop(self):
         if self.server:
-            self.server.shutdown()
+            try:
+                self.server.shutdown()
+                self.server.server_close()
+            except Exception:
+                pass
+            self.server = None
 
 
 local_bridge = LocalBridgeServer()

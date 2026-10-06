@@ -38,6 +38,11 @@ def get_public_ip():
         except Exception:
             continue
     # Fallback to local machine IP
+    return get_lan_ip()
+
+
+def get_lan_ip():
+    """Discover local network IP address (e.g. 192.168.x.x) for LAN connections."""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
@@ -54,8 +59,34 @@ class SunshineManager:
     def __init__(self):
         os.makedirs(CONFIG_DIR, exist_ok=True)
         self.process = None
+        self.web_process = None
         self.current_session = None
         self.sunshine_exe = self._find_sunshine()
+        self.web_exe = self._find_web_server()
+
+    def _find_web_server(self):
+        """Locate moonlight-web Actix WebRTC streaming server binary."""
+        base_dirs = [
+            getattr(sys, "_MEIPASS", ""),
+            os.path.dirname(sys.executable),
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
+            os.path.expanduser(r"~\Downloads\Productify--main\Productify-Node"),
+            r"C:\Users\lenovo\Downloads\Productify--main\Productify-Node",
+        ]
+        candidates = []
+        for b in base_dirs:
+            if b:
+                candidates.append(os.path.join(b, "bin", "moonlight-web", "web-server.exe"))
+                candidates.append(os.path.join(b, "bin", "moonlight-web", "web-server"))
+                candidates.append(os.path.join(b, "web-server.exe"))
+        candidates.extend([
+            shutil.which("web-server.exe"),
+            shutil.which("web-server"),
+        ])
+        for c in candidates:
+            if c and os.path.exists(c):
+                return os.path.abspath(c)
+        return None
 
     def _find_sunshine(self):
         """Locate Sunshine binary across standard Windows installations and local bin."""
@@ -138,6 +169,17 @@ class SunshineManager:
         # Terminate any existing streaming instance
         self.stop_session()
 
+        # Auto-detect game binary if launch_cmd not passed
+        if not launch_cmd:
+            try:
+                from productify_node.streaming.game_detector import find_game_executable
+                found_exe = find_game_executable(game_title)
+                if found_exe:
+                    launch_cmd = f'"{found_exe}"'
+                    node_state.log(f"Auto-resolved game binary for '{game_title}': {launch_cmd}", "INFO")
+            except Exception as ex:
+                logger.debug(f"Game detector error: {ex}")
+
         conf_path, apps_path = self._generate_config(game_title, launch_cmd)
 
         # Generate a secure 4-digit pairing PIN for Moonlight pairing
@@ -166,17 +208,38 @@ class SunshineManager:
         try:
             self.process = subprocess.Popen(cmd, **kwargs)
             wan_ip = get_public_ip()
+            lan_ip = get_lan_ip()
             port = 47989
+            web_port = 48080
+
+            # Launch in-browser WebRTC streamer (Moonlight-Web Actix WebRTC server)
+            self.web_exe = self._find_web_server()
+            if self.web_exe:
+                try:
+                    web_cmd = [self.web_exe, "--bind-address", f"0.0.0.0:{web_port}"]
+                    web_kwargs = dict(kwargs)
+                    web_kwargs["cwd"] = os.path.dirname(self.web_exe)
+                    self.web_process = subprocess.Popen(web_cmd, **web_kwargs)
+                    node_state.log(f"Started Moonlight WebRTC browser player daemon on port {web_port}", "INFO")
+                except Exception as we:
+                    node_state.log(f"WebRTC web-server notice: {we}", "WARNING")
+
+            web_stream_url = f"http://{wan_ip}:{web_port}/stream.html"
+            lan_stream_url = f"http://{lan_ip}:{web_port}/stream.html"
 
             self.current_session = {
                 "session_id": session_id,
                 "game_title": game_title,
                 "pid": self.process.pid,
                 "wan_ip": wan_ip,
+                "lan_ip": lan_ip,
                 "port": port,
+                "web_port": web_port,
                 "pin": pin,
                 "is_private": is_private,
                 "started_at": time.time(),
+                "stream_url": web_stream_url,
+                "lan_stream_url": lan_stream_url,
                 "moonlight_uri": f"moonlight://{wan_ip}:{port}?pin={pin}",
                 "status": "streaming"
             }
@@ -188,15 +251,45 @@ class SunshineManager:
                 "session_id": session_id,
                 "game_title": game_title,
                 "wan_ip": wan_ip,
+                "lan_ip": lan_ip,
                 "port": port,
+                "web_port": web_port,
                 "pin": pin,
                 "moonlight_uri": f"moonlight://{wan_ip}:{port}?pin={pin}",
-                "stream_url": f"https://{wan_ip}:47990",
+                "stream_url": web_stream_url,
+                "lan_stream_url": lan_stream_url,
                 "status": "streaming"
             }
         except Exception as e:
             node_state.log(f"Failed to start Sunshine daemon: {e}", "ERROR")
             return {"ok": False, "error": str(e)}
+
+    def ensure_web_server_running(self, web_port=48080):
+        """Ensure Moonlight-Web Actix server is running and listening on port 48080."""
+        if self.web_process and self.web_process.poll() is None:
+            return True
+        self.web_exe = self._find_web_server()
+        if not self.web_exe:
+            return False
+        try:
+            web_cmd = [self.web_exe, "--bind-address", f"0.0.0.0:{web_port}"]
+            kwargs = {
+                "cwd": os.path.dirname(self.web_exe),
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.DEVNULL,
+            }
+            if os.name == "nt":
+                kwargs["creationflags"] = CREATE_NO_WINDOW
+                si = subprocess.STARTUPINFO()
+                si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                si.wShowWindow = 0
+                kwargs["startupinfo"] = si
+            self.web_process = subprocess.Popen(web_cmd, **kwargs)
+            node_state.log(f"Moonlight WebRTC browser player active on port {web_port}", "INFO")
+            return True
+        except Exception as e:
+            logger.warning(f"Could not start web-server daemon: {e}")
+            return False
 
     def stop_session(self, session_id=None):
         """Terminate active Sunshine instance and clean up."""
@@ -211,10 +304,22 @@ class SunshineManager:
                     pass
             self.process = None
 
-        # Clean up any leftover sunshine.exe processes
+        if self.web_process:
+            try:
+                self.web_process.terminate()
+                self.web_process.wait(timeout=3)
+            except Exception:
+                try:
+                    self.web_process.kill()
+                except Exception:
+                    pass
+            self.web_process = None
+
+        # Clean up any leftover processes
         if os.name == "nt":
             try:
                 subprocess.run(["taskkill", "/F", "/IM", "sunshine.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+                subprocess.run(["taskkill", "/F", "/IM", "web-server.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
             except Exception:
                 pass
 

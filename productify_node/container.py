@@ -259,12 +259,27 @@ class ContainerManager:
             except Exception as e:
                 node_state.log(f"Docker game run error: {e}", "WARNING")
 
+        # Bare-metal host execution fallback (Windows process sandbox)
+        game_proc_info = {}
+        if not docker_started:
+            try:
+                from productify_node.streaming.game_detector import launch_game
+                game_proc_info = launch_game(game_title, session_id)
+                if game_proc_info.get("ok"):
+                    node_state.log(f"Spawned local game process '{game_title}' (PID {game_proc_info.get('pid')}) from {game_proc_info.get('exe_path')}", "INFO")
+                else:
+                    node_state.log(f"Game executable search: {game_proc_info.get('error')}", "WARNING")
+            except Exception as ex:
+                node_state.log(f"Error launching local game executable: {ex}", "ERROR")
+
         pod_info = {
             "instance_id": session_id,
             "session_id": session_id,
             "game_title": game_title,
             "container_id": container_id,
             "docker_started": docker_started,
+            "process_pid": game_proc_info.get("pid"),
+            "exe_path": game_proc_info.get("exe_path"),
             "workspace": pod_dir,
             "image": docker_image,
             "is_game": True,
@@ -272,10 +287,23 @@ class ContainerManager:
         }
         node_state.add_pod(session_id, pod_info)
 
-        return {"ok": True, "container_id": container_id, "docker_active": docker_started}
+        return {
+            "ok": True,
+            "container_id": container_id,
+            "docker_active": docker_started,
+            "game_launched": bool(game_proc_info.get("ok")),
+            "pid": game_proc_info.get("pid"),
+            "exe_path": game_proc_info.get("exe_path"),
+        }
 
     def stop_game_pod(self, session_id, container_id=None):
-        """Force-stop gaming container and scrub game workspace securely."""
+        """Force-stop gaming container/process and scrub game workspace securely."""
+        try:
+            from productify_node.streaming.game_detector import stop_game
+            stop_game(session_id)
+        except Exception:
+            pass
+
         container_name = f"prod-game-{session_id[:8]}"
         try:
             safe_run(["docker", "rm", "-f", container_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)

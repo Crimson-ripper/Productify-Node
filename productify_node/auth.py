@@ -18,6 +18,9 @@ def generate_hardware_fingerprint():
     return hashlib.sha256(raw.encode()).hexdigest()[:24]
 
 
+DEFAULT_BACKEND_URL = "https://productify-backend-65tj.onrender.com"
+
+
 class PlatformAuth:
     """Manages pairing tokens, node registration, and platform heartbeats."""
 
@@ -25,27 +28,61 @@ class PlatformAuth:
         self.fingerprint = generate_hardware_fingerprint()
 
     def test_platform_connection(self, platform_url=None):
-        """Test reachability of Productify API."""
-        url = (platform_url or config.get("platform_url", "https://productifynow.com")).rstrip("/")
-        test_endpoint = f"{url}/api/health" if not url.endswith("/api") else f"{url}/health"
+        """Test reachability and health of Productify Cloud API."""
+        raw_url = (platform_url or config.get("platform_url", DEFAULT_BACKEND_URL)).rstrip("/")
+        # Auto-resolve parked domain or missing protocol
+        if raw_url in ["https://productifynow.com", "http://productifynow.com", "https://productifynow.com/"]:
+            url = DEFAULT_BACKEND_URL
+        elif not raw_url.startswith("http://") and not raw_url.startswith("https://"):
+            url = f"https://{raw_url}"
+        else:
+            url = raw_url
 
-        try:
-            req = urllib.request.Request(
-                test_endpoint,
-                headers={"User-Agent": "Productify-Node-Client/1.0"},
-            )
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                status = resp.status
-                return {"reachable": status in [200, 404], "status_code": status, "url": url}
-        except urllib.error.HTTPError as e:
-            return {"reachable": True, "status_code": e.code, "url": url}
-        except Exception as e:
-            # Also try base URL
+        candidates = [
+            f"{url}/api/health",
+            f"{url}/health",
+            f"{url}/api/products",
+            f"{url}/api",
+        ]
+
+        last_status = None
+        last_error = None
+
+        for endpoint in candidates:
             try:
-                with urllib.request.urlopen(url, timeout=5) as resp:
-                    return {"reachable": True, "status_code": resp.status, "url": url}
-            except Exception as e2:
-                return {"reachable": False, "error": str(e2), "url": url}
+                req = urllib.request.Request(
+                    endpoint,
+                    headers={"User-Agent": "Productify-Node-Client/1.0"},
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    if resp.status == 200:
+                        return {
+                            "reachable": True,
+                            "healthy": True,
+                            "status_code": 200,
+                            "url": url,
+                            "endpoint": endpoint,
+                        }
+            except urllib.error.HTTPError as e:
+                last_status = e.code
+                if e.code == 200:
+                    return {
+                        "reachable": True,
+                        "healthy": True,
+                        "status_code": 200,
+                        "url": url,
+                    }
+                last_error = f"HTTP {e.code}"
+            except Exception as e:
+                last_error = str(e)
+
+        return {
+            "reachable": False,
+            "healthy": False,
+            "status_code": last_status or 0,
+            "error": last_error or "Connection timed out",
+            "url": url,
+        }
 
     def pair_with_token(self, token, rental_id=None, platform_url=None):
         """Pair this physical node with the seller's account using the pairing token."""
@@ -53,7 +90,9 @@ class PlatformAuth:
         if not token:
             return {"ok": False, "error": "Token cannot be empty"}
 
-        base_url = (platform_url or config.get("platform_url", "https://productifynow.com")).rstrip("/")
+        base_url = (platform_url or config.get("platform_url", DEFAULT_BACKEND_URL)).rstrip("/")
+        if base_url in ["https://productifynow.com", "http://productifynow.com", "https://productifynow.com/"]:
+            base_url = DEFAULT_BACKEND_URL
         telemetry = get_full_telemetry()
 
         payload = {
@@ -107,7 +146,9 @@ class PlatformAuth:
         if not rental_id:
             return False
 
-        base_url = config.get("platform_url", "https://productifynow.com").rstrip("/")
+        base_url = config.get("platform_url", DEFAULT_BACKEND_URL).rstrip("/")
+        if base_url in ["https://productifynow.com", "http://productifynow.com", "https://productifynow.com/"]:
+            base_url = DEFAULT_BACKEND_URL
         payload = {
             "rental_id": rental_id,
             "token": token,

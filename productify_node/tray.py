@@ -109,6 +109,12 @@ class NodeSystemTray:
 
     def start(self, show_window_cb=None, exit_cb=None):
         """Launch tray icon in background daemon thread."""
+        if self._thread and self._thread.is_alive():
+            if show_window_cb:
+                self._show_window_cb = show_window_cb
+            if exit_cb:
+                self._exit_cb = exit_cb
+            return
         self._show_window_cb = show_window_cb
         self._exit_cb = exit_cb
 

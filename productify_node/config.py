@@ -23,7 +23,7 @@ class NodeConfig:
     DEFAULT_SETTINGS = {
         "node_id": None,
         "node_name": platform.node() or "Productify-Host-Node",
-        "platform_url": "https://productifynow.com",
+        "platform_url": "https://productify-backend-65tj.onrender.com",
         "pairing_token": "",
         "rental_id": "",
         "is_live": False,
@@ -52,6 +52,10 @@ class NodeConfig:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                     saved = json.load(f)
                     self.data.update(saved)
+                    # Auto-migrate legacy parked domain URL to actual backend URL
+                    if self.data.get("platform_url") in ["https://productifynow.com", "http://productifynow.com", "https://productifynow.com/"]:
+                        self.data["platform_url"] = "https://productify-backend-65tj.onrender.com"
+                        self.save()
             except Exception as e:
                 logger.warning(f"Could not load config file {CONFIG_FILE}: {e}")
 

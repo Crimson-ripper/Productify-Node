@@ -44,7 +44,10 @@ class AuthTab(tk.Frame):
         # 1. Platform URL
         tk.Label(form, text="Productify Platform URL:", font=FONT_TITLE, fg=TEXT_PRIMARY, bg=BG_CARD).pack(anchor="w", pady=(4, 2))
         self.url_entry = tk.Entry(form, font=FONT_MONO, bg=BG_CARD_LIGHT, fg=TEXT_PRIMARY, insertbackground=TEXT_PRIMARY, highlightthickness=1, highlightbackground=BORDER_COLOR)
-        self.url_entry.insert(0, config.get("platform_url", "https://productifynow.com"))
+        cur_url = config.get("platform_url", "https://productify-backend-65tj.onrender.com")
+        if cur_url in ["https://productifynow.com", "http://productifynow.com", "https://productifynow.com/"]:
+            cur_url = "https://productify-backend-65tj.onrender.com"
+        self.url_entry.insert(0, cur_url)
         self.url_entry.pack(fill="x", pady=(0, 10))
 
         # 2. Host Pairing Token
@@ -129,7 +132,13 @@ class AuthTab(tk.Frame):
         self.update()
 
         res = auth_client.test_platform_connection(url)
-        if res.get("reachable"):
-            self.status_lbl.config(text=f"✓ Platform is reachable! (HTTP status: {res.get('status_code')})", fg=ACCENT_GREEN)
+        if res.get("healthy") or res.get("status_code") == 200:
+            self.status_lbl.config(text=f"🟢 Connected to Productify Cloud! (HTTP 200 OK)", fg=ACCENT_GREEN)
+            if res.get("url"):
+                config.set("platform_url", res["url"])
+                self.url_entry.delete(0, "end")
+                self.url_entry.insert(0, res["url"])
+        elif res.get("status_code") == 404:
+            self.status_lbl.config(text=f"⚠️ Endpoint returned 404 Not Found. Use: https://productify-backend-65tj.onrender.com", fg=ACCENT_AMBER)
         else:
-            self.status_lbl.config(text=f"❌ Unable to reach platform: {res.get('error')}", fg=ACCENT_RED)
+            self.status_lbl.config(text=f"❌ Unable to reach platform: {res.get('error', 'Check connection')}", fg=ACCENT_RED)

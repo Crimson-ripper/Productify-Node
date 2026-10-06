@@ -1,0 +1,10 @@
+<!doctype html><html lang="en" class="notranslate"><head><meta charset="UTF-8"/><meta name="google" content="notranslate"/><title>Moonlight</title><link rel="icon" href="resources/moonlight.svg" sizes="any" type="image/svg+xml"><script src="./config.js"></script><script>try {
+            const raw = localStorage.getItem("mlSettings");
+            const parsed = raw ? JSON.parse(raw) : null;
+            const language = parsed && (parsed.language === "zh-CN" || parsed.language === "zh" || parsed.language === "zh_CN")
+                ? "zh-CN"
+                : "en";
+            document.documentElement.lang = language;
+            document.documentElement.translate = false;
+            document.documentElement.classList.add("notranslate");
+        } catch (_err) { }</script><link rel="icon" href="moonlight.svg"></head><body><div id="modal-overlay" class="modal-background modal-disabled"><div id="modal-parent" class="modal-content"></div></div><div id="context-menu" class="context-menu-background context-menu-disabled"></div><div id="error-list"></div><div id="root"></div><script src="admin.js"></script></body></html>

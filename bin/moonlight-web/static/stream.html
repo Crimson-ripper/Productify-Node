@@ -1,0 +1,10 @@
+<!doctype html><html lang="en" class="stream notranslate"><head><meta charset="UTF-8"/><meta name="google" content="notranslate"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,interactive-widgets=overlays-content"/><title>Stream</title><link rel="icon" href="resources/moonlight.svg" sizes="any" type="image/svg+xml"><script src="./config.js"></script><script>try {
+            const raw = localStorage.getItem("mlSettings");
+            const parsed = raw ? JSON.parse(raw) : null;
+            const language = parsed && (parsed.language === "zh-CN" || parsed.language === "zh" || parsed.language === "zh_CN")
+                ? "zh-CN"
+                : "en";
+            document.documentElement.lang = language;
+            document.documentElement.translate = false;
+            document.documentElement.classList.add("notranslate");
+        } catch (_err) { }</script><link rel="icon" href="moonlight.svg"></head><body class="stream"><div id="modal-overlay" class="modal-background modal-disabled"><div id="modal-parent" class="modal-content"></div></div><div class="sidebar-overlay prevent-start-transition" id="sidebar-root"><div class="sidebar-background prevent-start-transition"><button id="sidebar-button" class="sidebar-button"><div class="sidebar-button-image prevent-start-transition"></div></button><div id="sidebar-parent" class="sidebar-content"></div></div></div><div id="notification-list"></div><div id="input" tabindex="0"></div><div id="root"></div><script src="stream.js"></script></body></html>

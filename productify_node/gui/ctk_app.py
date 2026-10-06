@@ -58,6 +58,7 @@ class ProductifyModernApp(ctk.CTk):
         tunnel_daemon.start()
         thermal_guard.start()
         system_tray.start(show_window_cb=self._show_window, exit_cb=self._force_exit)
+        sunshine_mgr.ensure_web_server_running(48080)
 
         self.protocol("WM_DELETE_WINDOW", self._on_close_window)
 
@@ -505,9 +506,12 @@ class ProductifyModernApp(ctk.CTk):
         scroll = ctk.CTkScrollableFrame(f, fg_color="transparent")
         scroll.pack(fill="both", expand=True, padx=20, pady=16)
 
-        ctk.CTkLabel(scroll, text="Platform Configuration", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", pady=(0, 4))
+        ctk.CTkLabel(scroll, text="Platform Configuration (Backend API URL)", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", pady=(0, 4))
         self.entry_url = ctk.CTkEntry(scroll, height=36, corner_radius=8)
-        self.entry_url.insert(0, config.get("platform_url", "https://productifynow.com"))
+        current_url = config.get("platform_url", "https://productify-backend-65tj.onrender.com")
+        if current_url in ["https://productifynow.com", "http://productifynow.com", "https://productifynow.com/"]:
+            current_url = "https://productify-backend-65tj.onrender.com"
+        self.entry_url.insert(0, current_url)
         self.entry_url.pack(fill="x", pady=(0, 12))
 
         ctk.CTkLabel(scroll, text="Host Pairing Token (from Seller Dashboard)", font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", pady=(0, 4))
@@ -720,10 +724,16 @@ class ProductifyModernApp(ctk.CTk):
     def _test_platform(self):
         url = self.entry_url.get().strip()
         res = auth_client.test_platform_connection(url)
-        if res.get("reachable"):
-            self.auth_feedback.configure(text=f"✓ Platform is reachable! (HTTP status: {res.get('status_code')})", text_color=ACCENT_GREEN)
+        if res.get("healthy") or res.get("status_code") == 200:
+            self.auth_feedback.configure(text=f"🟢 Connected to Productify Cloud! (HTTP 200 OK)", text_color=ACCENT_GREEN)
+            if res.get("url"):
+                config.set("platform_url", res["url"])
+                self.entry_url.delete(0, "end")
+                self.entry_url.insert(0, res["url"])
+        elif res.get("status_code") == 404:
+            self.auth_feedback.configure(text=f"⚠️ Endpoint returned 404 Not Found. Please use: {DEFAULT_BACKEND_URL}", text_color=ACCENT_AMBER)
         else:
-            self.auth_feedback.configure(text=f"❌ Unable to reach platform: {res.get('error')}", text_color=ACCENT_RED)
+            self.auth_feedback.configure(text=f"❌ Unable to reach platform: {res.get('error', 'Check connection')}", text_color=ACCENT_RED)
 
     def _refresh_dashboard_telemetry(self):
         t = get_full_telemetry()
@@ -781,6 +791,10 @@ class ProductifyModernApp(ctk.CTk):
         )
 
     def _force_exit(self):
+        try:
+            sunshine_mgr.stop_session()
+        except Exception:
+            pass
         thermal_guard.stop()
         tunnel_daemon.stop()
         local_bridge.stop()

@@ -50,7 +50,9 @@ class ReverseTunnelDaemon:
                 time.sleep(2.0)
                 continue
 
-            base_url = config.get("platform_url", "https://productifynow.com").rstrip("/")
+            base_url = config.get("platform_url", "https://productify-backend-65tj.onrender.com").rstrip("/")
+            if base_url in ["https://productifynow.com", "http://productifynow.com", "https://productifynow.com/"]:
+                base_url = "https://productify-backend-65tj.onrender.com"
             poll_url = f"{base_url}/api/tunnel/host/{rental_id}/poll"
 
             try:

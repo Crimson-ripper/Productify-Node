@@ -189,23 +189,22 @@ class ProductifyNodeApp(tk.Tk):
 
 
 def start_gui():
-    """Launch GUI preferring modern Edge WebView2, falling back to CustomTkinter and Tkinter."""
-    try:
-        from productify_node.gui.webview_app import start_webview
-        logger.info("Initializing Edge WebView2 Desktop Hypervisor...")
-        start_webview()
-        return
-    except Exception as e:
-        logger.warning(f"Edge WebView2 launcher skipped ({e}). Falling back to CustomTkinter...")
-
+    """Launch modern CustomTkinter hypervisor studio, falling back to Tkinter."""
     try:
         import customtkinter
         from productify_node.gui.ctk_app import start_app as start_modern_app
+        logger.info("Initializing CustomTkinter Desktop Hypervisor Studio...")
         start_modern_app()
+        return
     except Exception as e:
-        logger.info(f"CustomTkinter not loaded ({e}), using standard Tkinter GUI.")
+        logger.warning(f"CustomTkinter launcher skipped ({e}). Falling back to standard Tkinter...")
+
+    try:
         app = ProductifyNodeApp()
         app.mainloop()
+    except Exception as e:
+        logger.error(f"Fatal error starting GUI: {e}")
+        raise
 
 
 if __name__ == "__main__":
