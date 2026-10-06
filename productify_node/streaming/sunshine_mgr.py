@@ -88,6 +88,75 @@ class SunshineManager:
                 return os.path.abspath(c)
         return None
 
+    def _ensure_web_server_config(self):
+        """Pre-configure Moonlight-Web with admin credentials and automatic login bypass."""
+        import hashlib
+        salt_hex = "c320a21ba2ffe63bf7c8672a42ebeb2d"
+        iterations = 600000
+
+        def hash_p(pw):
+            return hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), bytes.fromhex(salt_hex), iterations).hex()
+
+        role_id = 2999276974
+        admin_role = {
+            "name": "Admin",
+            "ty": "Admin",
+            "default_settings": None,
+            "permissions": {
+                "allow_add_hosts": True,
+                "maximum_bitrate_kbps": None,
+                "allow_codec_h264": True,
+                "allow_codec_h265": True,
+                "allow_codec_av1": True,
+                "allow_hdr": True,
+                "allow_transport_webrtc": True,
+                "allow_transport_websockets": True
+            }
+        }
+        users = {
+            "1001": {
+                "role_id": role_id,
+                "name": "admin",
+                "password": {"salt": salt_hex, "hash": hash_p("admin"), "iterations": iterations},
+                "client_unique_id": "admin"
+            },
+            "1002": {
+                "role_id": role_id,
+                "name": "productify",
+                "password": {"salt": salt_hex, "hash": hash_p("productify"), "iterations": iterations},
+                "client_unique_id": "productify"
+            },
+            "1003": {
+                "role_id": role_id,
+                "name": "Aryansh Kulshreshtha",
+                "password": {"salt": salt_hex, "hash": hash_p("admin"), "iterations": iterations},
+                "client_unique_id": "Aryansh Kulshreshtha"
+            }
+        }
+        data = {
+            "version": "3",
+            "users": users,
+            "hosts": {},
+            "roles": {str(role_id): admin_role},
+            "default_role_id": role_id,
+            "default_user_id": 1001
+        }
+
+        dirs = []
+        if self.web_exe:
+            dirs.append(os.path.join(os.path.dirname(self.web_exe), "server"))
+        dirs.append(os.path.expanduser(r"~/.productify/moonlight-web/server"))
+        dirs.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "moonlight-web", "server")))
+
+        for d in dirs:
+            try:
+                os.makedirs(d, exist_ok=True)
+                fpath = os.path.join(d, "data.json")
+                with open(fpath, "w", encoding="utf-8") as fp:
+                    json.dump(data, fp, indent=2)
+            except Exception as e:
+                logger.debug(f"Could not seed {d}: {e}")
+
     def _find_sunshine(self):
         """Locate Sunshine binary across standard Windows installations and local bin."""
         candidates = [
@@ -212,20 +281,11 @@ class SunshineManager:
             port = 47989
             web_port = 48080
 
-            # Launch in-browser WebRTC streamer (Moonlight-Web Actix WebRTC server)
-            self.web_exe = self._find_web_server()
-            if self.web_exe:
-                try:
-                    web_cmd = [self.web_exe, "--bind-address", f"0.0.0.0:{web_port}"]
-                    web_kwargs = dict(kwargs)
-                    web_kwargs["cwd"] = os.path.dirname(self.web_exe)
-                    self.web_process = subprocess.Popen(web_cmd, **web_kwargs)
-                    node_state.log(f"Started Moonlight WebRTC browser player daemon on port {web_port}", "INFO")
-                except Exception as we:
-                    node_state.log(f"WebRTC web-server notice: {we}", "WARNING")
+            # Ensure Moonlight WebRTC streamer is running with pre-seeded credentials
+            self.ensure_web_server_running(web_port)
 
-            web_stream_url = f"http://{wan_ip}:{web_port}/stream.html"
-            lan_stream_url = f"http://{lan_ip}:{web_port}/stream.html"
+            web_stream_url = f"http://{wan_ip}:{web_port}/"
+            lan_stream_url = f"http://{lan_ip}:{web_port}/"
 
             self.current_session = {
                 "session_id": session_id,
@@ -236,6 +296,8 @@ class SunshineManager:
                 "port": port,
                 "web_port": web_port,
                 "pin": pin,
+                "web_username": "admin",
+                "web_password": "admin",
                 "is_private": is_private,
                 "started_at": time.time(),
                 "stream_url": web_stream_url,
@@ -255,6 +317,8 @@ class SunshineManager:
                 "port": port,
                 "web_port": web_port,
                 "pin": pin,
+                "web_username": "admin",
+                "web_password": "admin",
                 "moonlight_uri": f"moonlight://{wan_ip}:{port}?pin={pin}",
                 "stream_url": web_stream_url,
                 "lan_stream_url": lan_stream_url,
@@ -265,12 +329,27 @@ class SunshineManager:
             return {"ok": False, "error": str(e)}
 
     def ensure_web_server_running(self, web_port=48080):
-        """Ensure Moonlight-Web Actix server is running and listening on port 48080."""
-        if self.web_process and self.web_process.poll() is None:
-            return True
+        """Ensure Moonlight-Web Actix server is running, listening, and pre-seeded with admin auth."""
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{web_port}/api/authenticate", timeout=1) as resp:
+                if resp.status == 200:
+                    return True
+        except Exception:
+            pass
+
         self.web_exe = self._find_web_server()
         if not self.web_exe:
             return False
+
+        # Pre-seed persistent authentication credentials
+        self._ensure_web_server_config()
+
+        # Clean up any stale web-server process
+        try:
+            subprocess.run(["taskkill", "/F", "/IM", "web-server.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+        except Exception:
+            pass
+
         try:
             web_cmd = [self.web_exe, "--bind-address", f"0.0.0.0:{web_port}"]
             kwargs = {
@@ -279,13 +358,14 @@ class SunshineManager:
                 "stderr": subprocess.DEVNULL,
             }
             if os.name == "nt":
+                CREATE_NO_WINDOW = 0x08000000
                 kwargs["creationflags"] = CREATE_NO_WINDOW
                 si = subprocess.STARTUPINFO()
                 si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                 si.wShowWindow = 0
                 kwargs["startupinfo"] = si
             self.web_process = subprocess.Popen(web_cmd, **kwargs)
-            node_state.log(f"Moonlight WebRTC browser player active on port {web_port}", "INFO")
+            node_state.log(f"Moonlight WebRTC browser player active on port {web_port} (Admin: admin/admin)", "INFO")
             return True
         except Exception as e:
             logger.warning(f"Could not start web-server daemon: {e}")
