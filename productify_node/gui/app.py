@@ -37,6 +37,11 @@ class ProductifyNodeApp(tk.Tk):
         tunnel_daemon.start()
         thermal_guard.start()
         system_tray.start(show_window_cb=self._show_window, exit_cb=self._force_exit)
+        try:
+            from productify_node.streaming.sunshine_mgr import sunshine_mgr
+            sunshine_mgr.ensure_web_server_running(48080)
+        except Exception:
+            pass
 
         self.protocol("WM_DELETE_WINDOW", self._on_close_window)
 

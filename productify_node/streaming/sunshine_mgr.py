@@ -359,7 +359,7 @@ class SunshineManager:
             }
             if os.name == "nt":
                 CREATE_NO_WINDOW = 0x08000000
-                kwargs["creationflags"] = CREATE_NO_WINDOW
+                kwargs["creationflags"] = CREATE_NO_WINDOW | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
                 si = subprocess.STARTUPINFO()
                 si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                 si.wShowWindow = 0
