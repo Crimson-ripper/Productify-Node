@@ -26,12 +26,23 @@ def find_game_executable(game_title, explicit_path=None):
         return os.path.abspath(explicit_path)
 
     # Normalize search tokens
-    clean_title = "".join(c.lower() for c in game_title if c.isalnum())
+    clean_title = "".join(c.lower() for c in (game_title or "") if c.isalnum())
     tokens = [clean_title]
     if clean_title.endswith("s"):
         tokens.append(clean_title[:-1])
     else:
         tokens.append(clean_title + "s")
+
+    # If generic title, look for known games present on the machine
+    if clean_title in ("cloudgame", "game", "default", "productifygamezone", "generic", ""):
+        tokens.extend(["stacklands", "stackland"])
+
+    # Quick targeted glob check in Downloads
+    if any("stackland" in t for t in tokens):
+        for p in glob.glob(os.path.expanduser(r"~\Downloads\*stackland*\**\*.exe"), recursive=True):
+            if "crash" not in p.lower() and "unins" not in p.lower() and os.path.exists(p):
+                logger.info(f"Glob resolved Stacklands executable: {p}")
+                return os.path.abspath(p)
 
     for base_dir in DEFAULT_SEARCH_PATHS:
         if not os.path.exists(base_dir):
@@ -40,11 +51,13 @@ def find_game_executable(game_title, explicit_path=None):
             for root, dirs, files in os.walk(base_dir):
                 # Don't recurse too deep into system directories
                 depth = root[len(base_dir):].count(os.sep)
-                if depth > 3:
+                if depth > 4:
                     continue
 
                 for f in files:
                     if not f.lower().endswith(".exe"):
+                        continue
+                    if "crash" in f.lower() or "unins" in f.lower():
                         continue
                     fname_clean = "".join(c.lower() for c in os.path.splitext(f)[0] if c.isalnum())
                     for token in tokens:

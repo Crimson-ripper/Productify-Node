@@ -185,13 +185,10 @@ class SunshineManager:
         conf_path = os.path.join(CONFIG_DIR, "sunshine.conf")
         apps_path = os.path.join(CONFIG_DIR, "apps.json")
 
-        # Sunshine base configuration
+        # Sunshine base configuration (no hardcoded nvenc, allows automatic QSV/AMF/NVENC/Software selection)
         sunshine_conf_content = (
             "port = 47989\n"
-            "web_port = 47990\n"
             "upnp = enabled\n"
-            "origin_pin_allowed = 1\n"
-            "encoder = nvenc\n"
             "fec_percentage = 20\n"
             "min_log_level = info\n"
             "channels = 2\n"
@@ -201,19 +198,33 @@ class SunshineManager:
         with open(conf_path, "w", encoding="utf-8") as f:
             f.write(sunshine_conf_content)
 
-        # Build application sandbox list (disables Desktop view, binds only to game)
-        cmd_str = launch_cmd if launch_cmd else "cmd.exe /c echo Starting Productify Cloud Session"
+        # Build application list with Desktop fallback so the stream is never black
+        apps_list = [
+            {
+                "name": "Desktop",
+                "image-path": "desktop.png",
+            }
+        ]
+        if launch_cmd:
+            apps_list.insert(0, {
+                "name": game_title or "Productify Gamezone",
+                "output": os.path.join(SUNSHINE_DIR, "game_stream.log"),
+                "cmd": launch_cmd,
+                "detached": True,
+                "image-path": "",
+            })
+        elif game_title and game_title not in ("Cloud Game", "default"):
+            apps_list.insert(0, {
+                "name": game_title,
+                "output": os.path.join(SUNSHINE_DIR, "game_stream.log"),
+                "cmd": "",
+                "detached": True,
+                "image-path": "",
+            })
+
         apps_data = {
             "env": {},
-            "apps": [
-                {
-                    "name": game_title or "Productify Gamezone",
-                    "output": os.path.join(SUNSHINE_DIR, "game_stream.log"),
-                    "cmd": cmd_str,
-                    "detached": True,
-                    "image-path": "",
-                }
-            ]
+            "apps": apps_list
         }
         with open(apps_path, "w", encoding="utf-8") as f:
             json.dump(apps_data, f, indent=2)
@@ -262,10 +273,16 @@ class SunshineManager:
             conf_path
         ]
 
+        sun_dir = os.path.dirname(self.sunshine_exe) if self.sunshine_exe else SUNSHINE_DIR
+        tools_dir = os.path.join(sun_dir, "tools")
+        sub_env = os.environ.copy()
+        sub_env["PATH"] = f"{tools_dir};{sun_dir};" + sub_env.get("PATH", "")
+
         kwargs = {
             "stdout": log_fp,
             "stderr": log_fp,
-            "cwd": SUNSHINE_DIR,
+            "cwd": sun_dir,
+            "env": sub_env,
         }
         if os.name == "nt":
             kwargs["creationflags"] = CREATE_NO_WINDOW
