@@ -101,12 +101,16 @@ class ReverseTunnelDaemon:
 
     def _dispatch_rpc(self, msg, base_url, rental_id):
         """Execute received RPC action and reply to cloud relay."""
-        msg_id = msg.get("id")
+        msg_id = msg.get("msg_id") or msg.get("id")
         action = msg.get("action")
-        payload = msg.get("payload", {})
+        raw_payload = msg.get("payload")
+        if isinstance(raw_payload, dict) and raw_payload:
+            payload = {**msg, **raw_payload}
+        else:
+            payload = msg
 
         node_state.log(f"Received RPC task '{action}' (ID: {msg_id})", "INFO")
-        reply_data = {"msg_id": msg_id, "ok": True}
+        reply_data = {"msg_id": msg_id, "id": msg_id, "action": action, "ok": True}
 
         try:
             if action == "deploy_pod":
@@ -130,6 +134,7 @@ class ReverseTunnelDaemon:
 
             elif action == "launch_game_container":
                 session_id = payload.get("session_id", "default")
+                reply_data["session_id"] = session_id
                 game_title = payload.get("game_title", "Cloud Game")
                 res = container_mgr.start_game_pod(
                     session_id=session_id,

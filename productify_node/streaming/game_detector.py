@@ -86,10 +86,16 @@ def launch_game(game_title, session_id, explicit_path=None):
     logger.info(f"Launching '{game_title}' from: {exe_path} (cwd: {game_dir})")
 
     try:
+        si = None
+        if os.name == "nt":
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = 4  # SW_SHOWNOACTIVATE
         proc = subprocess.Popen(
             [exe_path],
             cwd=game_dir,
             shell=False,
+            startupinfo=si,
         )
         ACTIVE_GAME_PROCESSES[session_id] = {
             "session_id": session_id,

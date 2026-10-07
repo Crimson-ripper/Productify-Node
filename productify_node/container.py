@@ -282,28 +282,51 @@ class ContainerManager:
             except Exception as e:
                 node_state.log(f"Docker game run error: {e}", "WARNING")
 
-        # Launch process: Prefer cached executable downloaded from Cloudflare R2
         game_proc_info = {}
-        if cached_exe_path and os.path.exists(cached_exe_path):
-            try:
-                game_cwd = os.path.dirname(cached_exe_path)
-                p = subprocess.Popen([cached_exe_path], cwd=game_cwd)
-                game_proc_info = {"ok": True, "pid": p.pid, "exe_path": cached_exe_path}
-                node_state.log(f"Launched cached R2 game binary '{game_title}' (PID {p.pid}) from {cached_exe_path}", "INFO")
-            except Exception as pe:
-                node_state.log(f"Failed to launch cached binary directly ({pe}), falling back to game detector...", "WARNING")
+        if docker_started:
+            # Game is strictly isolated inside the Docker container
+            game_proc_info = {
+                "ok": True,
+                "pid": None,
+                "container_id": container_id,
+                "exe_path": f"/game_workspace/{executable_rel_path}" if executable_rel_path else "/game_workspace",
+                "in_container": True
+            }
+            node_state.log(f"Game '{game_title}' allocated inside isolated Docker container {container_name}.", "INFO")
+        else:
+            if not self.docker_status["docker_available"]:
+                node_state.log(
+                    f"[CONTAINER NOTICE] Docker Desktop is not installed on this host. "
+                    f"Operating in Windows sandbox process mode. (To enable strict Docker virtualization, install Docker Desktop).",
+                    "INFO"
+                )
 
-        # Bare-metal host execution fallback (Windows process sandbox)
-        if not game_proc_info.get("ok") and not docker_started:
-            try:
-                from productify_node.streaming.game_detector import launch_game
-                game_proc_info = launch_game(game_title, session_id)
-                if game_proc_info.get("ok"):
-                    node_state.log(f"Spawned local game process '{game_title}' (PID {game_proc_info.get('pid')}) from {game_proc_info.get('exe_path')}", "INFO")
-                else:
-                    node_state.log(f"Game executable search: {game_proc_info.get('error')}", "WARNING")
-            except Exception as ex:
-                node_state.log(f"Error launching local game executable: {ex}", "ERROR")
+            # Launch process in Windows process sandbox: Prefer cached executable downloaded from Cloudflare R2
+            if cached_exe_path and os.path.exists(cached_exe_path):
+                try:
+                    game_cwd = os.path.dirname(cached_exe_path)
+                    si = None
+                    if os.name == "nt":
+                        si = subprocess.STARTUPINFO()
+                        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                        si.wShowWindow = 4  # SW_SHOWNOACTIVATE - display window without stealing focus from host
+                    p = subprocess.Popen([cached_exe_path], cwd=game_cwd, startupinfo=si)
+                    game_proc_info = {"ok": True, "pid": p.pid, "exe_path": cached_exe_path}
+                    node_state.log(f"Launched cached R2 game binary '{game_title}' (PID {p.pid}) in sandbox from {cached_exe_path}", "INFO")
+                except Exception as pe:
+                    node_state.log(f"Failed to launch cached binary directly ({pe}), falling back to game detector...", "WARNING")
+
+            # Bare-metal host execution fallback (Windows process sandbox)
+            if not game_proc_info.get("ok"):
+                try:
+                    from productify_node.streaming.game_detector import launch_game
+                    game_proc_info = launch_game(game_title, session_id)
+                    if game_proc_info.get("ok"):
+                        node_state.log(f"Spawned local game process '{game_title}' (PID {game_proc_info.get('pid')}) from {game_proc_info.get('exe_path')}", "INFO")
+                    else:
+                        node_state.log(f"Game executable search: {game_proc_info.get('error')}", "WARNING")
+                except Exception as ex:
+                    node_state.log(f"Error launching local game executable: {ex}", "ERROR")
 
         final_exe = game_proc_info.get("exe_path") or cached_exe_path
 

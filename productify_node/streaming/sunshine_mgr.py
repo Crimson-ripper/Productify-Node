@@ -158,22 +158,44 @@ class SunshineManager:
                 logger.debug(f"Could not seed {d}: {e}")
 
     def _find_sunshine(self):
-        """Locate Sunshine binary across standard Windows installations and local bin."""
+        """Locate Sunshine binary across user directory, standard Windows installations, and local bin."""
+        user_app = os.path.expanduser(r"~/.productify/sunshine/app/sunshine.exe")
         candidates = [
-            # 1. Productify bundled bin
+            # 1. User AppData writable copy (prevents C:\Program Files permission denied errors)
+            user_app,
+            # 2. Productify bundled bin
             os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "sunshine", "sunshine.exe")),
             os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "sunshine", "sunshine")),
-            # 2. Standard Windows Program Files
+            # 3. Standard Windows Program Files
             r"C:\Program Files\Sunshine\sunshine.exe",
             r"C:\Program Files (x86)\Sunshine\sunshine.exe",
             os.path.expandvars(r"%LOCALAPPDATA%\Sunshine\sunshine.exe"),
-            # 3. System PATH
+            # 4. System PATH
             shutil.which("sunshine.exe"),
             shutil.which("sunshine"),
         ]
         for c in candidates:
             if c and os.path.exists(c):
-                return c
+                # If found in Program Files and user app doesn't exist, replicate to user app for full permissions
+                if "Program Files" in c and not os.path.exists(user_app):
+                    try:
+                        src_dir = os.path.dirname(c)
+                        dst_dir = os.path.dirname(user_app)
+                        os.makedirs(os.path.join(dst_dir, "config", "credentials"), exist_ok=True)
+                        for item in os.listdir(src_dir):
+                            if item.lower() in ("config", "uninstall.exe"):
+                                continue
+                            s = os.path.join(src_dir, item)
+                            d = os.path.join(dst_dir, item)
+                            if os.path.isdir(s) and not os.path.exists(d):
+                                shutil.copytree(s, d)
+                            elif os.path.isfile(s) and not os.path.exists(d):
+                                shutil.copy2(s, d)
+                        if os.path.exists(user_app):
+                            return os.path.abspath(user_app)
+                    except Exception as ex:
+                        logger.debug(f"Could not mirror Sunshine to user directory: {ex}")
+                return os.path.abspath(c)
         return None
 
     def is_installed(self):
@@ -182,8 +204,10 @@ class SunshineManager:
 
     def _generate_config(self, game_title, launch_cmd=None):
         """Generate sandboxed sunshine.conf and apps.json strictly locking stream to the game window."""
-        conf_path = os.path.join(CONFIG_DIR, "sunshine.conf")
-        apps_path = os.path.join(CONFIG_DIR, "apps.json")
+        conf_dir = os.path.join(os.path.dirname(self.sunshine_exe), "config") if self.sunshine_exe else CONFIG_DIR
+        os.makedirs(os.path.join(conf_dir, "credentials"), exist_ok=True)
+        conf_path = os.path.join(conf_dir, "sunshine.conf")
+        apps_path = os.path.join(conf_dir, "apps.json")
 
         # Sunshine base configuration (no hardcoded nvenc, allows automatic QSV/AMF/NVENC/Software selection)
         sunshine_conf_content = (
