@@ -208,7 +208,7 @@ class ContainerManager:
         node_state.log("Emergency Stop executed: All pods killed and workspaces wiped clean.", "WARNING")
         return len(pods)
 
-    def start_game_pod(self, session_id, game_title, docker_image="productify/game-runner:generic", game_package_url=None, is_private=False):
+    def start_game_pod(self, session_id, game_title, docker_image="productify/game-runner:generic", game_package_url=None, is_private=False, game_id=None, executable_rel_path=None, r2_key=None):
         """Provision isolated cloud gaming container with GPU passthrough and WebRTC streaming stack."""
         if not node_state.is_live:
             return {"ok": False, "error": "Node is currently PAUSED. Game cannot be started."}
@@ -219,6 +219,28 @@ class ContainerManager:
         container_name = f"prod-game-{session_id[:8]}"
         boundary_flags = enforcer.get_docker_boundary_flags()
 
+        # Step 1: Ensure game package is downloaded from Cloudflare R2 and unpacked in host cache
+        cached_exe_path = None
+        game_workspace_dir = pod_dir
+        try:
+            from productify_node.streaming.game_cache import game_cache_mgr
+            effective_game_id = game_id or game_title.lower().replace(" ", "-")
+            cache_res = game_cache_mgr.ensure_game_ready(
+                game_id=effective_game_id,
+                game_title=game_title,
+                package_url=game_package_url,
+                executable_rel_path=executable_rel_path,
+            )
+            if cache_res.get("ok"):
+                cached_exe_path = cache_res.get("exe_path")
+                if cache_res.get("game_dir") and os.path.exists(cache_res.get("game_dir")):
+                    game_workspace_dir = cache_res.get("game_dir")
+                node_state.log(f"Game package ready for '{game_title}': {cached_exe_path}", "INFO")
+            else:
+                node_state.log(f"Cache check for '{game_title}': {cache_res.get('error')}", "WARNING")
+        except Exception as ex:
+            node_state.log(f"Error checking game package cache: {ex}", "WARNING")
+
         # Write game isolation metadata
         with open(os.path.join(pod_dir, "game_meta.json"), "w") as f:
             f.write(json.dumps({
@@ -226,6 +248,7 @@ class ContainerManager:
                 "game_title": game_title,
                 "is_private": is_private,
                 "package_url": game_package_url,
+                "exe_path": cached_exe_path,
                 "status": "active"
             }, indent=2) + "\n")
 
@@ -246,7 +269,7 @@ class ContainerManager:
                 + gpu_flags
                 + boundary_flags
                 + env_flags
-                + ["-v", f"{pod_dir}:/game_workspace", docker_image, "sleep", "infinity"]
+                + ["-v", f"{game_workspace_dir}:/game_workspace", docker_image, "sleep", "infinity"]
             )
             try:
                 res = safe_run(cmd, capture_output=True, text=True, timeout=25)
@@ -259,9 +282,19 @@ class ContainerManager:
             except Exception as e:
                 node_state.log(f"Docker game run error: {e}", "WARNING")
 
-        # Bare-metal host execution fallback (Windows process sandbox)
+        # Launch process: Prefer cached executable downloaded from Cloudflare R2
         game_proc_info = {}
-        if not docker_started:
+        if cached_exe_path and os.path.exists(cached_exe_path):
+            try:
+                game_cwd = os.path.dirname(cached_exe_path)
+                p = subprocess.Popen([cached_exe_path], cwd=game_cwd)
+                game_proc_info = {"ok": True, "pid": p.pid, "exe_path": cached_exe_path}
+                node_state.log(f"Launched cached R2 game binary '{game_title}' (PID {p.pid}) from {cached_exe_path}", "INFO")
+            except Exception as pe:
+                node_state.log(f"Failed to launch cached binary directly ({pe}), falling back to game detector...", "WARNING")
+
+        # Bare-metal host execution fallback (Windows process sandbox)
+        if not game_proc_info.get("ok") and not docker_started:
             try:
                 from productify_node.streaming.game_detector import launch_game
                 game_proc_info = launch_game(game_title, session_id)
@@ -272,6 +305,8 @@ class ContainerManager:
             except Exception as ex:
                 node_state.log(f"Error launching local game executable: {ex}", "ERROR")
 
+        final_exe = game_proc_info.get("exe_path") or cached_exe_path
+
         pod_info = {
             "instance_id": session_id,
             "session_id": session_id,
@@ -279,8 +314,8 @@ class ContainerManager:
             "container_id": container_id,
             "docker_started": docker_started,
             "process_pid": game_proc_info.get("pid"),
-            "exe_path": game_proc_info.get("exe_path"),
-            "workspace": pod_dir,
+            "exe_path": final_exe,
+            "workspace": game_workspace_dir,
             "image": docker_image,
             "is_game": True,
             "is_private": is_private,
@@ -293,7 +328,7 @@ class ContainerManager:
             "docker_active": docker_started,
             "game_launched": bool(game_proc_info.get("ok")),
             "pid": game_proc_info.get("pid"),
-            "exe_path": game_proc_info.get("exe_path"),
+            "exe_path": final_exe,
         }
 
     def stop_game_pod(self, session_id, container_id=None):

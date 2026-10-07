@@ -137,16 +137,20 @@ class ReverseTunnelDaemon:
                     docker_image=payload.get("docker_image", "productify/game-runner:generic"),
                     game_package_url=payload.get("game_package_url"),
                     is_private=payload.get("is_private", False),
+                    game_id=payload.get("game_id"),
+                    executable_rel_path=payload.get("executable_rel_path"),
+                    r2_key=payload.get("r2_key"),
                 )
                 reply_data.update(res)
 
-                # Launch Sunshine streaming daemon for low-latency gaming
+                # Launch Sunshine streaming daemon targeting the installed game executable
                 try:
                     from productify_node.streaming.sunshine_mgr import sunshine_mgr
+                    effective_launch_cmd = res.get("exe_path") or payload.get("launch_cmd")
                     stream_res = sunshine_mgr.start_session(
                         session_id=session_id,
                         game_title=game_title,
-                        launch_cmd=payload.get("launch_cmd"),
+                        launch_cmd=effective_launch_cmd,
                         is_private=payload.get("is_private", False),
                     )
                     reply_data["streaming"] = stream_res
