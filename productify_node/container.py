@@ -32,10 +32,30 @@ def ensure_pods_dir():
     os.makedirs(PODS_ROOT, exist_ok=True)
 
 
+def find_docker_cli():
+    """Locate docker executable on PATH or standard Docker Desktop locations."""
+    cli = shutil.which("docker")
+    if cli:
+        return cli
+    candidates = [
+        r"C:\Program Files\Docker\Docker\resources\bin\docker.exe",
+        r"C:\Program Files\Docker\Docker\docker.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Docker\resources\bin\docker.exe"),
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            d = os.path.dirname(c)
+            if d not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = f"{d};" + os.environ.get("PATH", "")
+            return c
+    return "docker"
+
+
 def probe_docker():
     """Verify Docker availability and NVIDIA GPU passthrough silently."""
+    docker_bin = find_docker_cli()
     try:
-        res = safe_run(["docker", "version"], capture_output=True, text=True, timeout=3)
+        res = safe_run([docker_bin, "version"], capture_output=True, text=True, timeout=4)
         docker_available = (res.returncode == 0)
     except Exception:
         docker_available = False
@@ -44,16 +64,16 @@ def probe_docker():
     if docker_available:
         try:
             res_gpu = safe_run(
-                ["docker", "run", "--rm", "--gpus", "all", "hello-world"],
+                [docker_bin, "run", "--rm", "--gpus", "all", "hello-world"],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=6
             )
             gpu_supported = (res_gpu.returncode == 0)
         except Exception:
             gpu_supported = False
 
-    return {"docker_available": docker_available, "gpu_supported": gpu_supported}
+    return {"docker_available": docker_available, "gpu_supported": gpu_supported, "docker_bin": docker_bin}
 
 
 class ContainerManager:
@@ -255,80 +275,75 @@ class ContainerManager:
         container_id = f"cntr-game-{session_id[:8]}"
         docker_started = False
 
-        if self.docker_status["docker_available"]:
-            gpu_flags = ["--gpus", "all"] if self.docker_status["gpu_supported"] else []
-            env_flags = [
-                "-e", f"GAME_TITLE={game_title}",
-                "-e", f"SESSION_ID={session_id}",
-                "-e", "DISPLAY=:0",
-                "-e", "NVIDIA_VISIBLE_DEVICES=all",
-                "-e", "NVIDIA_DRIVER_CAPABILITIES=all"
-            ]
-            cmd = (
-                ["docker", "run", "-d", "--name", container_name]
-                + gpu_flags
-                + boundary_flags
-                + env_flags
-                + ["-v", f"{game_workspace_dir}:/game_workspace", docker_image, "sleep", "infinity"]
+        # Strict container isolation check: Never run game directly on host desktop
+        if not self.docker_status["docker_available"]:
+            node_state.log(
+                f"[CONTAINER ISOLATION ENFORCED] Docker Desktop is not running on this host node. "
+                f"Workload '{game_title}' was BLOCKED from executing on the host OS desktop. "
+                f"Please start Docker Desktop to enable isolated game containers.",
+                "ERROR"
             )
-            try:
-                res = safe_run(cmd, capture_output=True, text=True, timeout=25)
-                if res.returncode == 0:
-                    container_id = res.stdout.strip()[:12]
-                    docker_started = True
-                    node_state.log(f"Spawned Gamezone Docker container {container_name} for '{game_title}'", "INFO")
-                else:
-                    node_state.log(f"Docker game spawn fallback for {session_id}: {res.stderr[:80]}", "WARNING")
-            except Exception as e:
-                node_state.log(f"Docker game run error: {e}", "WARNING")
-
-        game_proc_info = {}
-        if docker_started:
-            # Game is strictly isolated inside the Docker container
-            game_proc_info = {
-                "ok": True,
-                "pid": None,
-                "container_id": container_id,
-                "exe_path": f"/game_workspace/{executable_rel_path}" if executable_rel_path else "/game_workspace",
-                "in_container": True
+            return {
+                "ok": False,
+                "error": "Docker is not running on this host machine. Cloud gaming requires Docker Desktop container isolation to prevent games from opening on the host desktop.",
+                "docker_missing": True,
+                "container_required": True,
             }
-            node_state.log(f"Game '{game_title}' allocated inside isolated Docker container {container_name}.", "INFO")
-        else:
-            if not self.docker_status["docker_available"]:
-                node_state.log(
-                    f"[CONTAINER NOTICE] Docker Desktop is not installed on this host. "
-                    f"Operating in Windows sandbox process mode. (To enable strict Docker virtualization, install Docker Desktop).",
-                    "INFO"
-                )
 
-            # Launch process in Windows process sandbox: Prefer cached executable downloaded from Cloudflare R2
-            if cached_exe_path and os.path.exists(cached_exe_path):
-                try:
-                    game_cwd = os.path.dirname(cached_exe_path)
-                    si = None
-                    if os.name == "nt":
-                        si = subprocess.STARTUPINFO()
-                        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                        si.wShowWindow = 4  # SW_SHOWNOACTIVATE - display window without stealing focus from host
-                    p = subprocess.Popen([cached_exe_path], cwd=game_cwd, startupinfo=si)
-                    game_proc_info = {"ok": True, "pid": p.pid, "exe_path": cached_exe_path}
-                    node_state.log(f"Launched cached R2 game binary '{game_title}' (PID {p.pid}) in sandbox from {cached_exe_path}", "INFO")
-                except Exception as pe:
-                    node_state.log(f"Failed to launch cached binary directly ({pe}), falling back to game detector...", "WARNING")
+        # Provision and spin up isolated Docker container
+        gpu_flags = ["--gpus", "all"] if self.docker_status["gpu_supported"] else []
+        env_flags = [
+            "-e", f"GAME_TITLE={game_title}",
+            "-e", f"SESSION_ID={session_id}",
+            "-e", "DISPLAY=:0",
+            "-e", "NVIDIA_VISIBLE_DEVICES=all",
+            "-e", "NVIDIA_DRIVER_CAPABILITIES=all"
+        ]
+        docker_bin = self.docker_status.get("docker_bin", "docker")
+        cmd = (
+            [docker_bin, "run", "-d", "--name", container_name]
+            + gpu_flags
+            + boundary_flags
+            + env_flags
+            + ["-v", f"{game_workspace_dir}:/game_workspace", docker_image, "sleep", "infinity"]
+        )
+        try:
+            res = safe_run(cmd, capture_output=True, text=True, timeout=25)
+            if res.returncode == 0:
+                container_id = res.stdout.strip()[:12]
+                docker_started = True
+                node_state.log(f"Spawned Gamezone Docker container {container_name} (ID: {container_id}) for '{game_title}'", "INFO")
+            else:
+                node_state.log(f"Docker game container spawn failed: {res.stderr[:120]}", "ERROR")
+                return {
+                    "ok": False,
+                    "error": f"Failed to spawn Docker container for game: {res.stderr[:120]}",
+                    "docker_error": True,
+                }
+        except Exception as e:
+            node_state.log(f"Docker run error: {e}", "ERROR")
+            return {
+                "ok": False,
+                "error": f"Docker execution error: {str(e)}",
+                "docker_error": True,
+            }
 
-            # Bare-metal host execution fallback (Windows process sandbox)
-            if not game_proc_info.get("ok"):
-                try:
-                    from productify_node.streaming.game_detector import launch_game
-                    game_proc_info = launch_game(game_title, session_id)
-                    if game_proc_info.get("ok"):
-                        node_state.log(f"Spawned local game process '{game_title}' (PID {game_proc_info.get('pid')}) from {game_proc_info.get('exe_path')}", "INFO")
-                    else:
-                        node_state.log(f"Game executable search: {game_proc_info.get('error')}", "WARNING")
-                except Exception as ex:
-                    node_state.log(f"Error launching local game executable: {ex}", "ERROR")
+        # Trigger execution strictly INSIDE the container via docker exec
+        container_exec_target = f"/game_workspace/{executable_rel_path}" if executable_rel_path else "/game_workspace"
+        if executable_rel_path:
+            exec_cmd = [docker_bin, "exec", "-d", container_name, "sh", "-c", f"cd /game_workspace && ./{executable_rel_path}"]
+            safe_run(exec_cmd, timeout=10)
+            node_state.log(f"Triggered game execution inside Docker container {container_name}: {executable_rel_path}", "INFO")
 
-        final_exe = game_proc_info.get("exe_path") or cached_exe_path
+        game_proc_info = {
+            "ok": True,
+            "pid": None,
+            "container_id": container_id,
+            "exe_path": container_exec_target,
+            "in_container": True
+        }
+
+        final_exe = game_proc_info.get("exe_path") or "/game_workspace"
 
         pod_info = {
             "instance_id": session_id,

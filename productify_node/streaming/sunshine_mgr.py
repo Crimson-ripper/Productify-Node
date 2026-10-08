@@ -229,7 +229,7 @@ class SunshineManager:
                 "image-path": "desktop.png",
             }
         ]
-        if launch_cmd:
+        if launch_cmd and launch_cmd.strip().startswith("docker"):
             apps_list.insert(0, {
                 "name": game_title or "Productify Gamezone",
                 "output": os.path.join(SUNSHINE_DIR, "game_stream.log"),
@@ -273,18 +273,9 @@ class SunshineManager:
         # Terminate any existing streaming instance
         self.stop_session()
 
-        # Auto-detect game binary if launch_cmd not passed
-        if not launch_cmd:
-            try:
-                from productify_node.streaming.game_detector import find_game_executable
-                found_exe = find_game_executable(game_title)
-                if found_exe:
-                    launch_cmd = f'"{found_exe}"'
-                    node_state.log(f"Auto-resolved game binary for '{game_title}': {launch_cmd}", "INFO")
-            except Exception as ex:
-                logger.debug(f"Game detector error: {ex}")
-
-        conf_path, apps_path = self._generate_config(game_title, launch_cmd)
+        # Never launch raw Windows executables on the host desktop. Only container commands are permitted.
+        safe_sunshine_cmd = launch_cmd if (launch_cmd and launch_cmd.strip().startswith("docker")) else ""
+        conf_path, apps_path = self._generate_config(game_title, safe_sunshine_cmd)
 
         # Generate a secure 4-digit pairing PIN for Moonlight pairing
         pin = f"{random.randint(1000, 9999)}"

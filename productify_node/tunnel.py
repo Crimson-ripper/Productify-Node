@@ -63,6 +63,7 @@ class ReverseTunnelDaemon:
                     "is_live": node_state.is_live,
                     "status": node_state.status,
                     "active_pods": len(node_state.get_active_pods()),
+                    "docker_available": container_mgr.docker_status.get("docker_available", False),
                     "client_timezone": tz_name,
                     "thermal": thermal_guard.get_status(),
                 }
@@ -148,20 +149,24 @@ class ReverseTunnelDaemon:
                 )
                 reply_data.update(res)
 
-                # Launch Sunshine streaming daemon targeting the installed game executable
-                try:
-                    from productify_node.streaming.sunshine_mgr import sunshine_mgr
-                    effective_launch_cmd = res.get("exe_path") or payload.get("launch_cmd")
-                    stream_res = sunshine_mgr.start_session(
-                        session_id=session_id,
-                        game_title=game_title,
-                        launch_cmd=effective_launch_cmd,
-                        is_private=payload.get("is_private", False),
-                    )
-                    reply_data["streaming"] = stream_res
-                except Exception as ex:
-                    node_state.log(f"Sunshine streaming start skipped: {ex}", "WARNING")
-                    reply_data["streaming"] = {"ok": False, "error": str(ex)}
+                if not res.get("ok"):
+                    node_state.log(f"Container launch failed for '{game_title}': {res.get('error')}", "ERROR")
+                    reply_data["streaming"] = {"ok": False, "error": res.get("error")}
+                else:
+                    # Launch Sunshine streaming daemon targeting the isolated container session
+                    try:
+                        from productify_node.streaming.sunshine_mgr import sunshine_mgr
+                        effective_launch_cmd = res.get("exe_path") if (res.get("exe_path") and res.get("exe_path").startswith("docker")) else ""
+                        stream_res = sunshine_mgr.start_session(
+                            session_id=session_id,
+                            game_title=game_title,
+                            launch_cmd=effective_launch_cmd,
+                            is_private=payload.get("is_private", False),
+                        )
+                        reply_data["streaming"] = stream_res
+                    except Exception as ex:
+                        node_state.log(f"Sunshine streaming start skipped: {ex}", "WARNING")
+                        reply_data["streaming"] = {"ok": False, "error": str(ex)}
 
             elif action == "stop_game_container":
                 session_id = payload.get("session_id")

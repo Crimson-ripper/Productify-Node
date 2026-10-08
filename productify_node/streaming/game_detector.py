@@ -33,16 +33,9 @@ def find_game_executable(game_title, explicit_path=None):
     else:
         tokens.append(clean_title + "s")
 
-    # If generic title, look for known games present on the machine
-    if clean_title in ("cloudgame", "game", "default", "productifygamezone", "generic", ""):
-        tokens.extend(["stacklands", "stackland"])
-
-    # Quick targeted glob check in Downloads
-    if any("stackland" in t for t in tokens):
-        for p in glob.glob(os.path.expanduser(r"~\Downloads\*stackland*\**\*.exe"), recursive=True):
-            if "crash" not in p.lower() and "unins" not in p.lower() and os.path.exists(p):
-                logger.info(f"Glob resolved Stacklands executable: {p}")
-                return os.path.abspath(p)
+    # Explicit title resolution only
+    if not clean_title:
+        return None
 
     for base_dir in DEFAULT_SEARCH_PATHS:
         if not os.path.exists(base_dir):
