@@ -149,23 +149,11 @@ class PlatformAuth:
         base_url = config.get("platform_url", DEFAULT_BACKEND_URL).rstrip("/")
         if base_url in ["https://productifynow.com", "http://productifynow.com", "https://productifynow.com/"]:
             base_url = DEFAULT_BACKEND_URL
-        payload = {
-            "rental_id": rental_id,
-            "token": token,
-            "status": status,
-            "ram_limit_gb": config.ram_limit_gb,
-            "disk_limit_gb": config.disk_limit_gb,
-            "cpu_limit_cores": config.cpu_limit_cores,
-            "telemetry": get_full_telemetry(),
-        }
-
         try:
-            data_bytes = json.dumps(payload).encode("utf-8")
             req = urllib.request.Request(
                 f"{base_url}/api/tunnel/host/{rental_id}/status",
-                data=data_bytes,
-                headers={"Content-Type": "application/json"},
-                method="POST"
+                headers={"X-Node-Token": token or ""},
+                method="GET"
             )
             with urllib.request.urlopen(req, timeout=5) as resp:
                 return resp.status == 200
