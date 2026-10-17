@@ -112,8 +112,8 @@ function flash(msg) {
 $("pair-form").addEventListener("submit", (e) => {
   e.preventDefault();
   act(async () => {
-    await call("pair", { rental_id: $("rental").value.trim(), token: $("token").value.trim() });
-    $("token").value = "";
+    await call("pair", { code: $("code").value.trim() });
+    $("code").value = "";
     repairing = false;
   }, "Paired");
 });

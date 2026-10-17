@@ -8,7 +8,7 @@
 // Control the running agent (talks to it over its named pipe):
 //
 //	productify-agent status
-//	productify-agent pair --rental r-xxxxxxxxxx --token ptok_xxxxxxxxxxxxxxxx
+//	productify-agent pair --code r-xxxxxxxxxx.ptok_xxxxxxxxxxxxxxxx
 //	productify-agent live on|off
 //	productify-agent limits [--memory-mb N] [--cpus N] [--disk-gb N] [--share-gpu=true|false] [--max-temp N]
 //	productify-agent stop         emergency stop: remove every job and pause
@@ -64,10 +64,11 @@ func main() {
 		show(control(ipc.Request{Op: "status"}))
 	case "pair":
 		fs := flag.NewFlagSet("pair", flag.ExitOnError)
-		rental := fs.String("rental", "", "listing id from Seller studio (r-…)")
-		token := fs.String("token", "", "pairing token from Seller studio (ptok_…)")
+		code := fs.String("code", "", "pairing code from Seller studio (r-….ptok_…)")
+		rental := fs.String("rental", "", "listing id (instead of --code)")
+		token := fs.String("token", "", "pairing token (instead of --code)")
 		_ = fs.Parse(os.Args[2:])
-		show(control(ipc.Request{Op: "pair", RentalID: *rental, Token: *token}))
+		show(control(ipc.Request{Op: "pair", Code: *code, RentalID: *rental, Token: *token}))
 		fmt.Println("Paired. Renting stays off until you run: productify-agent live on")
 	case "live":
 		if len(os.Args) < 3 || (os.Args[2] != "on" && os.Args[2] != "off") {

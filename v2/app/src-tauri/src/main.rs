@@ -17,7 +17,7 @@ async fn agent(op: String, args: Option<Value>) -> Result<Value, String> {
     }
     let mut req = json!({ "op": op });
     if let Some(Value::Object(m)) = args {
-        for k in ["rental_id", "token", "live", "memory_mb", "cpus", "disk_gb", "share_gpu", "max_gpu_temp_c"] {
+        for k in ["code", "rental_id", "token", "live", "memory_mb", "cpus", "disk_gb", "share_gpu", "max_gpu_temp_c"] {
             if let Some(v) = m.get(k) {
                 req[k] = v.clone();
             }

@@ -29,6 +29,7 @@ type Request struct {
 	Op       string   `json:"op"`
 	RentalID string   `json:"rental_id,omitempty"`
 	Token    string   `json:"token,omitempty"`
+	Code     string   `json:"code,omitempty"` // "<listing id>.<token>", replaces RentalID+Token
 	Live     *bool    `json:"live,omitempty"`
 	MemoryMB *int     `json:"memory_mb,omitempty"`
 	CPUs     *float64 `json:"cpus,omitempty"`

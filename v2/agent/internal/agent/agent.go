@@ -82,6 +82,7 @@ func (a *Agent) Hello() map[string]any {
 	return map[string]any{
 		"agent_version": Version, "node_id": s.NodeID, "os": runtime.GOOS,
 		"gpu": a.GPU.Name(), "vram_mb": a.GPU.VRAMMB(), "cpu_cores": runtime.NumCPU(),
+		"cpu": CPUModel(), "ram_mb": RAMMB(),
 		"docker": st.Docker, "gpu_in_docker": st.GPUInDocker, "live": st.Live,
 	}
 }

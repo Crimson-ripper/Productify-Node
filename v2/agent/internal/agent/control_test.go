@@ -36,6 +36,34 @@ func TestControlPairingStartsPausedAndHidesToken(t *testing.T) {
 	}
 }
 
+func TestControlPairingCode(t *testing.T) {
+	a := newAgent(t, "https://example.invalid", false)
+	if _, err := a.Control(ipc.Request{Op: "pair", Code: "r-abc123def4ptok_0123456789abcdef"}); err == nil {
+		t.Error("code without the separator accepted")
+	}
+	if _, err := a.Control(ipc.Request{Op: "pair", Code: "r-abc123def4.ptok_bad"}); err == nil {
+		t.Error("bad token inside code accepted")
+	}
+	if _, err := a.Control(ipc.Request{Op: "pair", Code: "  r-1a2b3c4d5e.ptok_fedcba9876543210 "}); err != nil {
+		t.Fatal(err)
+	}
+	s := a.Store.Get()
+	if s.RentalID != "r-1a2b3c4d5e" || s.Token != "ptok_fedcba9876543210" || s.Live {
+		t.Errorf("pairing code not applied: %+v", s)
+	}
+}
+
+func TestHelloReportsHardware(t *testing.T) {
+	a := newAgent(t, "https://example.invalid", false)
+	h := a.Hello()
+	if h["cpu_cores"].(int) < 1 {
+		t.Error("cpu_cores missing")
+	}
+	if _, ok := h["ram_mb"]; !ok {
+		t.Error("ram_mb missing from hello")
+	}
+}
+
 func TestControlLimitsValidated(t *testing.T) {
 	a := newAgent(t, "https://example.invalid", true)
 	tooHot, tooSmall := 120, 64

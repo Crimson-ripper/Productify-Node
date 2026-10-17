@@ -16,8 +16,15 @@ func (a *Agent) Control(req ipc.Request) (any, error) {
 
 	case "pair":
 		rental, token := strings.TrimSpace(req.RentalID), strings.TrimSpace(req.Token)
+		if code := strings.TrimSpace(req.Code); code != "" {
+			// Pairing code from Seller studio: "<listing id>.<token>"
+			var ok bool
+			if rental, token, ok = strings.Cut(code, "."); !ok {
+				return nil, fmt.Errorf("that doesn't look like a pairing code — copy it again from Seller studio")
+			}
+		}
 		if rental == "" || token == "" {
-			return nil, fmt.Errorf("both the listing id and the pairing token are needed")
+			return nil, fmt.Errorf("paste the pairing code from Seller studio")
 		}
 		// A new pairing starts paused, so the seller decides when renters can connect.
 		_, err := a.Store.Update(func(s *config.Settings) { s.RentalID, s.Token, s.Live = rental, token, false })
