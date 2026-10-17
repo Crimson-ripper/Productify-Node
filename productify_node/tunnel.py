@@ -20,6 +20,7 @@ class ReverseTunnelDaemon:
         self._thread = None
         self._running = False
         self._connected = False
+        self._auth_warned = False
 
     def start(self):
         if self._running:
@@ -71,11 +72,16 @@ class ReverseTunnelDaemon:
                 req = urllib.request.Request(
                     poll_url,
                     data=data_bytes,
-                    headers={"Content-Type": "application/json", "User-Agent": "Productify-Node-Client/1.0"},
+                    headers={
+                        "Content-Type": "application/json",
+                        "User-Agent": "Productify-Node-Client/1.0",
+                        "X-Node-Token": config.get("pairing_token", ""),
+                    },
                     method="POST"
                 )
                 with urllib.request.urlopen(req, timeout=12) as resp:
                     if resp.status == 200:
+                        self._auth_warned = False
                         if not self._connected:
                             self._connected = True
                             node_state.tunnel_connected = True
@@ -91,7 +97,10 @@ class ReverseTunnelDaemon:
                                 daemon=True
                             ).start()
             except urllib.error.HTTPError as e:
-                # 404 means rental node is not registered yet on platform
+                # 401 means the pairing token is missing or wrong; 404 means not registered yet
+                if e.code == 401 and not self._auth_warned:
+                    self._auth_warned = True
+                    node_state.log("Tunnel rejected: pairing token is missing or invalid. Re-pair this node from the Seller Dashboard.", "ERROR")
                 self._connected = False
                 node_state.tunnel_connected = False
                 time.sleep(4.0)
@@ -192,7 +201,7 @@ class ReverseTunnelDaemon:
             req = urllib.request.Request(
                 reply_url,
                 data=json.dumps(reply_data).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": "application/json", "X-Node-Token": config.get("pairing_token", "")},
                 method="POST"
             )
             with urllib.request.urlopen(req, timeout=8):
