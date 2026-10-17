@@ -1,0 +1,13 @@
+{
+  "name": "productify-node-app",
+  "private": true,
+  "version": "2.0.0",
+  "scripts": {
+    "icons": "tauri icon app-icon.png",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.9.6"
+  }
+}

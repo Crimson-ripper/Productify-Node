@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Productify Node</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="brand"><span class="mark">P</span> Productify Node</div>
+    <div id="state" class="state">Connecting…</div>
+  </header>
+
+  <div id="error" class="error" hidden></div>
+
+  <!-- Not paired yet -->
+  <main id="pair-view" hidden>
+    <section class="panel narrow">
+      <h1>Pair this computer</h1>
+      <p class="muted">In <b>Seller studio → Machines</b> on productifynow.com, create a GPU listing for this computer and copy its listing id and pairing token.</p>
+      <form id="pair-form" class="form">
+        <label>Listing id<input id="rental" required placeholder="r-1a2b3c4d5e" autocomplete="off" spellcheck="false"></label>
+        <label>Pairing token<input id="token" required placeholder="ptok_…" autocomplete="off" spellcheck="false"></label>
+        <button class="primary" type="submit">Pair</button>
+      </form>
+      <p class="muted small">Renting stays off after pairing until you switch it on.</p>
+    </section>
+  </main>
+
+  <!-- Paired -->
+  <main id="main-view" hidden>
+    <section class="hero">
+      <div>
+        <div class="eyebrow">Listing <span id="listing"></span></div>
+        <h1 id="headline">Paused</h1>
+        <p id="subline" class="muted"></p>
+      </div>
+      <div class="hero-actions">
+        <button id="live-btn" class="primary">Start renting</button>
+        <button id="stop-btn" class="danger">Emergency stop</button>
+      </div>
+    </section>
+
+    <dl class="stats">
+      <div><dt>Docker</dt><dd id="s-docker">—</dd></div>
+      <div><dt>GPU</dt><dd id="s-gpu">—</dd></div>
+      <div><dt>GPU temperature</dt><dd id="s-temp">—</dd></div>
+      <div><dt>Jobs running</dt><dd id="s-jobs">—</dd></div>
+    </dl>
+
+    <div class="cols">
+      <section class="panel">
+        <h2>Limits for renters</h2>
+        <form id="limits-form" class="form">
+          <div class="two">
+            <label>Memory (MB)<input id="l-mem" type="number" min="256" step="256" required></label>
+            <label>CPU cores<input id="l-cpu" type="number" min="0.5" step="0.5" required></label>
+          </div>
+          <div class="two">
+            <label>Disk per job (GB)<input id="l-disk" type="number" min="1" step="1" required></label>
+            <label>Max GPU temperature (°C)<input id="l-temp" type="number" min="60" max="95" required></label>
+          </div>
+          <label class="check"><input id="l-gpu" type="checkbox"> Let renters use my GPU</label>
+          <button class="secondary" type="submit">Save limits</button>
+        </form>
+        <p class="muted small">Renters' jobs run in locked-down containers. They can't see your files, your screen or other programs.</p>
+      </section>
+
+      <section class="panel">
+        <h2>Activity</h2>
+        <ol id="logs" class="logs"></ol>
+        <button id="repair-btn" class="link">Pair with a different listing</button>
+      </section>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
