@@ -201,12 +201,18 @@ func (a *Agent) Run(ctx context.Context) error {
 	go func() {
 		thermal := time.NewTicker(5 * time.Second)
 		probe := time.NewTicker(2 * time.Minute)
+		settings := time.NewTicker(2 * time.Second)
 		defer thermal.Stop()
 		defer probe.Stop()
+		defer settings.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
+			case <-settings.C:
+				if a.Store.ReloadIfChanged() {
+					a.Log.Info("settings changed", "live", a.Store.Get().Live)
+				}
 			case now := <-thermal.C:
 				a.CheckThermal(now)
 			case <-probe.C:

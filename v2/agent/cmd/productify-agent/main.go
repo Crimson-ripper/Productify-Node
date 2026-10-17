@@ -81,9 +81,12 @@ func main() {
 func newAgent(store *config.Store) *agent.Agent {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	a := &agent.Agent{Store: store, GPU: &agent.NvidiaSMI{}, Log: log}
-	docker, err := exec.LookPath("docker")
-	if err != nil {
-		docker = `C:\Program Files\Docker\Docker\resources\bin\docker.exe`
+	docker := os.Getenv("PRODUCTIFY_DOCKER") // integration tests point this at a stand-in
+	if docker == "" {
+		var err error
+		if docker, err = exec.LookPath("docker"); err != nil {
+			docker = `C:\Program Files\Docker\Docker\resources\bin\docker.exe`
+		}
 	}
 	a.Runner = jobs.NewRunner(jobs.CLI(docker), func() jobs.Limits {
 		return store.Get().Limits(a.Status().GPUInDocker)

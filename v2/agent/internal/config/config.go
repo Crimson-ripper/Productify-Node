@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"productifynode/internal/jobs"
 )
@@ -75,6 +76,31 @@ type Store struct {
 	restrict bool // lock the file to SYSTEM/Administrators (the real install path only)
 	mu       sync.Mutex
 	s        Settings
+	modTime  time.Time
+}
+
+// ReloadIfChanged re-reads the file when another process (the CLI) changed it.
+// Invalid contents are ignored and the current settings kept.
+func (st *Store) ReloadIfChanged() (changed bool) {
+	fi, err := os.Stat(st.path)
+	if err != nil {
+		return false
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if !fi.ModTime().After(st.modTime) {
+		return false
+	}
+	b, err := os.ReadFile(st.path)
+	if err != nil {
+		return false
+	}
+	next := defaults()
+	if json.Unmarshal(b, &next) != nil || next.Validate() != nil {
+		return false
+	}
+	st.s, st.modTime = next, fi.ModTime()
+	return true
 }
 
 // DefaultPath is %ProgramData%\ProductifyNode\node.json on Windows.
@@ -98,6 +124,9 @@ func Open(path string) (*Store, error) {
 	}
 	if err := json.Unmarshal(b, &st.s); err != nil {
 		return nil, fmt.Errorf("settings file %s is corrupt: %w", path, err)
+	}
+	if fi, err := os.Stat(path); err == nil {
+		st.modTime = fi.ModTime()
 	}
 	return st, nil
 }
@@ -130,6 +159,9 @@ func (st *Store) Update(fn func(*Settings)) (Settings, error) {
 	}
 	if st.restrict {
 		restrict(st.path)
+	}
+	if fi, err := os.Stat(st.path); err == nil {
+		st.modTime = fi.ModTime()
 	}
 	st.s = next
 	return next, nil
