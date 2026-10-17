@@ -100,6 +100,26 @@ Unknown types get `{"ok": false, "error": "unsupported"}`.
 * **Limits**: a job is killed (event `killed_thermal`) when the GPU exceeds the
   seller's temperature ceiling for 30 s, and the node pauses until it cools.
 
+## Control channel
+
+`\\.\pipe\productify-node`, SDDL `D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)`
+(protected DACL: SYSTEM, Administrators, interactive users read/write only).
+One JSON request per connection: `status`, `pair`, `live`, `limits`,
+`emergency_stop`, `logs`. A new pairing always starts paused. `status` never
+returns the full pairing token. The CLI (`productify-agent status|pair|live|…`)
+and the desktop app both use this pipe.
+
+## Status
+
+| Part | State |
+|------|-------|
+| Agent core, tunnel, hardened jobs, thermal guard | done, unit + end-to-end tested |
+| Windows service (install/uninstall, auto-restart) | done; install needs an elevated prompt |
+| Named-pipe control channel + CLI | done; ACL verified by test |
+| Backend `/ws/node/v1` | live |
+| Tauri desktop app | next |
+| Real Docker run on a GPU machine | not yet (Docker Desktop was off on the dev laptop) |
+
 ## Release blockers before sellers get v2.0
 
 1. LAN egress blocking for job networks, verified with a test container.

@@ -28,6 +28,7 @@ type Agent struct {
 	Runner *jobs.Runner
 	GPU    GPUInfo
 	Log    *slog.Logger
+	Logs   *LogBuffer // recent lines for the desktop app; may be nil
 
 	mu            sync.Mutex
 	dockerReady   bool
@@ -228,7 +229,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(10 * time.Second):
+			case <-time.After(time.Second):
 				continue
 			}
 		}
@@ -246,7 +247,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(10 * time.Second):
+			case <-time.After(time.Second):
 			}
 		}
 	}

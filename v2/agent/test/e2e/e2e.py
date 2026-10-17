@@ -48,19 +48,30 @@ for f in ("node.json", "docker-calls.log"):
     except FileNotFoundError: pass
 run = lambda *a: subprocess.run([agent_exe, *a], env=env, capture_output=True, text=True)
 
-# Wrong token is refused and the agent gives up instead of hammering.
-run("pair", "--rental", RENTAL["id"], "--token", "ptok_ffffffffffffffff", "--backend", f"http://127.0.0.1:{PORT}")
+# Point the agent at the local backend, then control it over its named pipe like the app does.
+json.dump({"backend_url": f"http://127.0.0.1:{PORT}", "memory_mb": 2048, "cpus": 2, "disk_gb": 10, "max_gpu_temp_c": 80},
+          open(os.path.join(here, "node.json"), "w"))
+agent = subprocess.Popen([agent_exe, "run"], env=env, stderr=subprocess.PIPE, text=True)
+time.sleep(1.5)
+r = run("live", "on")
+check("can't go live before pairing", r.returncode != 0 and "pair" in r.stderr, r.stderr)
+
+# (The pipe's ACL is checked by the Go unit test internal/ipc TestPipeACL.)
+
+# Wrong token is refused and the agent stops retrying.
+run("pair", "--rental", RENTAL["id"], "--token", "ptok_ffffffffffffffff")
 run("live", "on")
-bad = subprocess.Popen([agent_exe, "run"], env=env, stderr=subprocess.PIPE, text=True)
 time.sleep(4)
 check("wrong token: not connected", not server.node_hub.is_connected(RENTAL["id"]))
-bad.kill(); err = bad.stderr.read()
-check("wrong token: agent reports pairing rejected", "rejected" in err, err[-300:])
+logs = run("logs").stdout
+check("wrong token: agent reports pairing rejected", "rejected" in logs, logs[-300:])
+st = run("status").stdout
+check("status never shows the full token", "ffffffffffff" not in st and "ptok_" in st, st)
 
-# Correct token connects; backend drives a job through the legacy send_rpc path.
-run("pair", "--rental", RENTAL["id"], "--token", RENTAL["pairing_token"], "--backend", f"http://127.0.0.1:{PORT}")
-agent = subprocess.Popen([agent_exe, "run"], env=env, stderr=subprocess.PIPE, text=True)
-for _ in range(50):
+# Re-pair with the right token: the agent picks it up without a restart.
+run("pair", "--rental", RENTAL["id"], "--token", RENTAL["pairing_token"])
+run("live", "on")
+for _ in range(100):
     if server.node_hub.is_connected(RENTAL["id"]): break
     time.sleep(0.2)
 check("agent connected", server.node_hub.is_connected(RENTAL["id"]))
