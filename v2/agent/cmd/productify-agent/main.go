@@ -119,6 +119,7 @@ func serve(ctx context.Context, logOut io.Writer) error {
 	a.Runner = jobs.NewRunner(jobs.CLI(dockerPath()), func() jobs.Limits {
 		return store.Get().Limits(a.Status().GPUInDocker)
 	})
+	a.Runner.EgressDir = egressDir()
 
 	l, err := ipc.Listen(ipc.PipeName)
 	if err != nil {
@@ -131,7 +132,7 @@ func serve(ctx context.Context, logOut io.Writer) error {
 	}()
 	a.Log.Info("agent started", "version", agent.Version)
 	err = a.Run(ctx)
-	n := a.Runner.StopAll() // never leave renter containers behind when the agent exits
+	n := a.Runner.StopAll("agent_stopped") // never leave renter containers behind when the agent exits
 	a.Log.Info("agent stopped", "jobs_removed", n)
 	if ctx.Err() != nil {
 		return nil
@@ -144,6 +145,18 @@ func configPath() string {
 		return p
 	}
 	return config.DefaultPath()
+}
+
+// egressDir is where the linux egress proxy binary lives: next to the agent.
+func egressDir() string {
+	if p := os.Getenv("PRODUCTIFY_EGRESS_DIR"); p != "" {
+		return p
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return filepath.Dir(exe)
 }
 
 func logPath() string { return filepath.Join(filepath.Dir(configPath()), "agent.log") }

@@ -1,6 +1,6 @@
 [package]
 name = "productify-node"
-version = "2.0.0"
+version = "2.1.0"
 description = "Productify Node — rent out your GPU on productifynow.com"
 edition = "2021"
 publish = false

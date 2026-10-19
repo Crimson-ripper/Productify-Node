@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -45,6 +46,11 @@ func newAgent(t *testing.T, backend string, live bool) *Agent {
 	}
 	a := &Agent{Store: st, GPU: &fakeGPU{temp: 50}, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	a.Runner = jobs.NewRunner(fakeDocker, func() jobs.Limits { return st.Get().Limits(false) })
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, jobs.EgressBinary), []byte("bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a.Runner.EgressDir = dir
 	return a
 }
 

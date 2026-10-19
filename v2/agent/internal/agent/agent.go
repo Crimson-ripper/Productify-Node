@@ -14,7 +14,7 @@ import (
 	"productifynode/internal/tunnel"
 )
 
-const Version = "2.0.0-dev"
+const Version = "2.1.0"
 
 // GPUInfo is read from the machine; Temp returns ok=false when unknown.
 type GPUInfo interface {
@@ -84,12 +84,14 @@ func (a *Agent) Hello() map[string]any {
 		"gpu": a.GPU.Name(), "vram_mb": a.GPU.VRAMMB(), "cpu_cores": runtime.NumCPU(),
 		"cpu": CPUModel(), "ram_mb": RAMMB(),
 		"docker": st.Docker, "gpu_in_docker": st.GPUInDocker, "live": st.Live,
+		"job_ids": a.Runner.JobIDs(), "isolation": "egress-proxy",
 	}
 }
 
 func (a *Agent) Heartbeat() map[string]any {
 	st := a.Status()
-	m := map[string]any{"live": st.Live, "jobs": st.Jobs, "paused_reason": st.PausedReason}
+	// job_ids lets the backend stop billing for anything no longer running here.
+	m := map[string]any{"live": st.Live, "jobs": st.Jobs, "paused_reason": st.PausedReason, "job_ids": a.Runner.JobIDs()}
 	if st.GPUTempC != nil {
 		m["gpu_temp_c"] = *st.GPUTempC
 	}
@@ -152,7 +154,7 @@ func (a *Agent) SetLive(live bool) error {
 
 // EmergencyStop kills every job and pauses the node.
 func (a *Agent) EmergencyStop() int {
-	n := a.Runner.StopAll()
+	n := a.Runner.StopAll("emergency_stop")
 	_ = a.SetLive(false)
 	a.Log.Warn("emergency stop", "jobs_killed", n)
 	return n
@@ -184,7 +186,7 @@ func (a *Agent) CheckThermal(now time.Time) {
 		} else if now.Sub(a.hotSince) >= 30*time.Second {
 			a.pausedReason = "thermal"
 			a.mu.Unlock()
-			n := a.Runner.StopAll()
+			n := a.Runner.StopAll("overheated")
 			a.mu.Lock()
 			a.Log.Error("GPU too hot; stopped all jobs", "temp_c", t, "max_c", max, "jobs_killed", n)
 			if a.events != nil {
@@ -196,10 +198,39 @@ func (a *Agent) CheckThermal(now time.Time) {
 	}
 }
 
+// jobEnded tells the backend a job ended on this machine so billing stops now.
+// If the tunnel is down the event is lost, but the next hello/heartbeat lists
+// the jobs still running and the backend reconciles from that.
+func (a *Agent) jobEnded(jobID, reason string) {
+	a.Log.Info("job ended", "job", jobID, "reason", reason)
+	a.mu.Lock()
+	send := a.events
+	a.mu.Unlock()
+	if send != nil {
+		send(map[string]any{"type": "event", "kind": "job_ended", "job_id": jobID, "reason": reason})
+	}
+}
+
 // Run starts the background loops and the tunnel. It returns when ctx ends or
 // the pairing is rejected.
 func (a *Agent) Run(ctx context.Context) error {
+	a.Runner.OnEnd = a.jobEnded
+	if n := a.Runner.RemoveOrphans(ctx); n > 0 {
+		a.Log.Warn("removed leftover job containers from a previous run", "jobs", n)
+	}
 	a.Probe(ctx)
+	go func() {
+		reap := time.NewTicker(30 * time.Second)
+		defer reap.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-reap.C:
+				a.Runner.Reap(ctx)
+			}
+		}
+	}()
 	go func() {
 		thermal := time.NewTicker(5 * time.Second)
 		probe := time.NewTicker(2 * time.Minute)

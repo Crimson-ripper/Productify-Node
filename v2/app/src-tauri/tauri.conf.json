@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Productify Node",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "identifier": "com.productifynow.node",
   "build": {
     "frontendDist": "../src"
@@ -31,7 +31,10 @@
     "category": "Utility",
     "shortDescription": "Rent out your GPU on productifynow.com",
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
-    "resources": { "../../agent/dist/productify-agent.exe": "productify-agent.exe" },
+    "resources": {
+      "../../agent/dist/productify-agent.exe": "productify-agent.exe",
+      "../../agent/dist/productify-egress": "productify-egress"
+    },
     "windows": {
       "nsis": { "installMode": "perMachine", "installerHooks": "./installer-hooks.nsh" }
     }

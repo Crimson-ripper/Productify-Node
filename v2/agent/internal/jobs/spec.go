@@ -25,6 +25,18 @@ type Limits struct {
 // RunAs is the unprivileged user inside every job container.
 const RunAs = "1000:1000"
 
+// Network isolation: each job's own network is --internal (no route to the
+// internet, the provider's LAN or the provider's computer). The only way out is
+// the job's egress proxy container, which also sits on the shared EgressNetwork
+// and only connects to public internet addresses (see internal/egress).
+const (
+	EgressNetwork = "productify-egress"
+	EgressAlias   = "egress"
+	EgressPort    = "3128"
+	EgressBinary  = "productify-egress" // linux/amd64 binary shipped next to the agent
+	egressMount   = "/opt/productify"
+)
+
 const (
 	labelKey  = "productify.job"
 	workdir   = "/workspace"
@@ -34,16 +46,65 @@ const (
 func ContainerName(jobID string) string { return namePref + jobID }
 func VolumeName(jobID string) string    { return namePref + jobID }
 func NetworkName(jobID string) string   { return namePref + jobID }
+func ProxyName(jobID string) string     { return "productify-egress-" + jobID }
 
 // NetworkCreateArgs creates an isolated bridge network for one job.
 func NetworkCreateArgs(jobID string) []string {
 	return []string{
 		"network", "create",
 		"--driver", "bridge",
-		"--opt", "com.docker.network.bridge.enable_icc=false",
+		"--internal",
 		"--label", labelKey + "=" + jobID,
 		NetworkName(jobID),
 	}
+}
+
+// EgressNetworkCreateArgs creates the shared bridge the egress proxies use to
+// reach the internet. Containers on it can't talk to each other.
+func EgressNetworkCreateArgs() []string {
+	return []string{
+		"network", "create",
+		"--driver", "bridge",
+		"--opt", "com.docker.network.bridge.enable_icc=false",
+		"--label", labelKey + "=egress",
+		EgressNetwork,
+	}
+}
+
+// ProxyRunArgs starts the job's egress proxy from the agent's own binary,
+// mounted read-only from binDir (the agent's install folder).
+func ProxyRunArgs(jobID, image, binDir string) []string {
+	return []string{
+		"run", "--detach",
+		"--name", ProxyName(jobID),
+		"--label", labelKey + "=" + jobID,
+		"--user", RunAs,
+		"--cap-drop", "ALL",
+		"--security-opt", "no-new-privileges",
+		"--read-only",
+		"--memory", "128m", "--memory-swap", "128m",
+		"--cpus", "0.50",
+		"--pids-limit", "64",
+		"--network", EgressNetwork,
+		"--mount", fmt.Sprintf("type=bind,src=%s,dst=%s,readonly", binDir, egressMount),
+		"--restart", "no",
+		"--entrypoint", egressMount + "/" + EgressBinary,
+		image, ":" + EgressPort,
+	}
+}
+
+// ProxyAttachArgs puts the proxy on the job's internal network as "egress".
+func ProxyAttachArgs(jobID string) []string {
+	return []string{"network", "connect", "--alias", EgressAlias, NetworkName(jobID), ProxyName(jobID)}
+}
+
+func proxyEnv() []string {
+	u := "http://" + EgressAlias + ":" + EgressPort
+	var out []string
+	for _, k := range []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"} {
+		out = append(out, "--env", k+"="+u)
+	}
+	return append(out, "--env", "NO_PROXY=localhost,127.0.0.1", "--env", "no_proxy=localhost,127.0.0.1")
 }
 
 // VolumeCreateArgs creates the job's scratch volume.
@@ -87,6 +148,7 @@ func RunArgs(jobID string, t templates.Template, l Limits) []string {
 		"--mount", fmt.Sprintf("type=volume,src=%s,dst=%s", VolumeName(jobID), workdir),
 		"--restart", "no",
 	}
+	args = append(args, proxyEnv()...)
 	if t.GPU && l.ShareGPU && l.GPUInDocker {
 		args = append(args, "--gpus", "all")
 	}
@@ -105,6 +167,7 @@ func ExecArgs(jobID string, argv []string, timeoutS int) []string {
 func CleanupArgs(jobID string) [][]string {
 	return [][]string{
 		{"rm", "--force", "--volumes", ContainerName(jobID)},
+		{"rm", "--force", ProxyName(jobID)},
 		{"volume", "rm", "--force", VolumeName(jobID)},
 		{"network", "rm", NetworkName(jobID)},
 	}
