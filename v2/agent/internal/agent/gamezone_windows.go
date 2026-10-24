@@ -60,7 +60,9 @@ func partitionableGPU(ctx context.Context) bool {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
-		"(Get-VMHostPartitionableGpu -ErrorAction Stop | Measure-Object).Count")
+		// Windows 11 names the cmdlet Get-VMHostPartitionableGpu; Windows 10 has Get-VMPartitionableGpu.
+		"$c = Get-Command Get-VMHostPartitionableGpu,Get-VMPartitionableGpu -ErrorAction SilentlyContinue | Select-Object -First 1; "+
+			"if ($c) { (& $c.Name -ErrorAction Stop | Measure-Object).Count } else { 0 }")
 	hideWindow(cmd)
 	out, err := cmd.Output()
 	if err != nil {

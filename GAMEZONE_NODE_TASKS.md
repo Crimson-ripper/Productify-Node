@@ -27,7 +27,7 @@ game from **their own Steam account**. Test machine: Suryansh's RTX 4060 laptop.
 
 ## Phase 0 — Setup
 - [x] 0.1 Merge `v2/go-agent` into `main` (fast-forward, 9 commits). Notes: done 2026-10-24; work continues on main.
-- [?] 0.2 Confirm Suryansh's laptop is Windows Pro (Home needs an upgrade before Gamezone tests). Notes: asked the user.
+- [x] 0.2 Confirm Suryansh's laptop is Windows Pro (Home needs an upgrade before Gamezone tests). Notes: user confirmed Pro (2026-10-24). Next: Suryansh runs v2/gamezone/check-host.ps1, turns on Hyper-V, sends output.
 
 ## Phase 1 — Eligibility
 - [x] 1.1 Agent reports Windows edition, Hyper-V state, GPU-P support (`Get-VMHostPartitionableGpu`). Notes: internal/agent/gamezone*.go; sent as "gamezone" in hello + Status; rechecked every 10 min. Verified on this PC (Win 10 Home → not eligible, 3 reasons).
@@ -35,8 +35,8 @@ game from **their own Steam account**. Test machine: Suryansh's RTX 4060 laptop.
 - [x] 1.3 Host app shows eligibility and why not (e.g. "Windows Home — Gamezone needs Pro"). Notes: Gamezone line + reasons in the app status panel. Not yet in a released build.
 
 ## Phase 2 — Gaming VM on the host
-- [ ] 2.1 Agent builds a base Windows VM (Hyper-V, Gen 2, GPU partition, driver files copied from host). Notes: —
-- [ ] 2.2 Per-session VM from a differencing disk / checkpoint; destroyed or reset after the session. Notes: —
+- [~] 2.1 Agent builds a base Windows VM (Hyper-V, Gen 2, GPU partition, driver files copied from host). Notes: v2/gamezone/gamezone-vm.ps1 drafted (PrepareBase/Start/Stop), UNTESTED; needs a base image made by hand (Win 11 Enterprise eval ISO). Agent wiring after the laptop test.
+- [~] 2.2 Per-session VM from a differencing disk / checkpoint; destroyed or reset after the session. Notes: Start uses a differencing disk, Stop deletes VM + disk. Untested.
 - [ ] 2.3 VM network isolated from the owner's LAN (same rules as the v2.1 egress proxy where possible). Notes: —
 
 ## Phase 3 — Streaming inside the VM
