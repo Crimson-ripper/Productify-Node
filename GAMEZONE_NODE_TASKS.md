@@ -30,9 +30,9 @@ game from **their own Steam account**. Test machine: Suryansh's RTX 4060 laptop.
 - [?] 0.2 Confirm Suryansh's laptop is Windows Pro (Home needs an upgrade before Gamezone tests). Notes: asked the user.
 
 ## Phase 1 — Eligibility
-- [ ] 1.1 Agent reports Windows edition, Hyper-V state, GPU-P support (`Get-VMHostPartitionableGpu`). Notes: —
-- [ ] 1.2 Backend stores `gamezone_eligible` + reasons; only eligible machines can take game sessions. Notes: —
-- [ ] 1.3 Host app shows eligibility and why not (e.g. "Windows Home — Gamezone needs Pro"). Notes: —
+- [x] 1.1 Agent reports Windows edition, Hyper-V state, GPU-P support (`Get-VMHostPartitionableGpu`). Notes: internal/agent/gamezone*.go; sent as "gamezone" in hello + Status; rechecked every 10 min. Verified on this PC (Win 10 Home → not eligible, 3 reasons).
+- [~] 1.2 Backend stores `gamezone_eligible` + reasons; only eligible machines can take game sessions. Notes: backend stores rentals.gamezone (live on main b65eec7). Enforcement comes with game sessions in 4.1.
+- [x] 1.3 Host app shows eligibility and why not (e.g. "Windows Home — Gamezone needs Pro"). Notes: Gamezone line + reasons in the app status panel. Not yet in a released build.
 
 ## Phase 2 — Gaming VM on the host
 - [ ] 2.1 Agent builds a base Windows VM (Hyper-V, Gen 2, GPU partition, driver files copied from host). Notes: —

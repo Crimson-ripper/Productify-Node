@@ -30,12 +30,14 @@ type Agent struct {
 	Log    *slog.Logger
 	Logs   *LogBuffer // recent lines for the desktop app; may be nil
 
-	mu            sync.Mutex
-	dockerReady   bool
-	gpuInDocker   bool
-	pausedReason  string // "", "seller", "thermal"
-	hotSince      time.Time
-	events        func(map[string]any) // set by Run to send tunnel events
+	mu           sync.Mutex
+	dockerReady  bool
+	gpuInDocker  bool
+	pausedReason string // "", "seller", "thermal"
+	hotSince     time.Time
+	gamezone     GamezoneCheck
+	gamezoneAt   time.Time
+	events       func(map[string]any) // set by Run to send tunnel events
 }
 
 // Probe refreshes Docker/GPU readiness. Call at start and periodically.
@@ -47,19 +49,27 @@ func (a *Agent) Probe(ctx context.Context) {
 	}
 	a.mu.Lock()
 	a.dockerReady, a.gpuInDocker = ready, gpu
+	stale := time.Since(a.gamezoneAt) > 10*time.Minute
 	a.mu.Unlock()
+	if stale { // runs PowerShell, so not on every probe
+		gz := CheckGamezone(ctx)
+		a.mu.Lock()
+		a.gamezone, a.gamezoneAt = gz, time.Now()
+		a.mu.Unlock()
+	}
 }
 
 // Status is shown in the desktop app.
 type Status struct {
-	Paired       bool   `json:"paired"`
-	Live         bool   `json:"live"`
-	PausedReason string `json:"paused_reason"`
-	Docker       bool   `json:"docker"`
-	GPUInDocker  bool   `json:"gpu_in_docker"`
-	Jobs         int    `json:"jobs"`
-	GPU          string `json:"gpu"`
-	GPUTempC     *int   `json:"gpu_temp_c"`
+	Paired       bool          `json:"paired"`
+	Live         bool          `json:"live"`
+	PausedReason string        `json:"paused_reason"`
+	Docker       bool          `json:"docker"`
+	GPUInDocker  bool          `json:"gpu_in_docker"`
+	Jobs         int           `json:"jobs"`
+	GPU          string        `json:"gpu"`
+	GPUTempC     *int          `json:"gpu_temp_c"`
+	Gamezone     GamezoneCheck `json:"gamezone"`
 }
 
 func (a *Agent) Status() Status {
@@ -67,7 +77,8 @@ func (a *Agent) Status() Status {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	st := Status{Paired: s.Paired(), Live: s.Live && a.pausedReason == "", PausedReason: a.pausedReason,
-		Docker: a.dockerReady, GPUInDocker: a.gpuInDocker, Jobs: a.Runner.Count(), GPU: a.GPU.Name()}
+		Docker: a.dockerReady, GPUInDocker: a.gpuInDocker, Jobs: a.Runner.Count(), GPU: a.GPU.Name(),
+		Gamezone: a.gamezone}
 	if t, ok := a.GPU.Temp(); ok {
 		st.GPUTempC = &t
 	}
@@ -85,6 +96,7 @@ func (a *Agent) Hello() map[string]any {
 		"cpu": CPUModel(), "ram_mb": RAMMB(),
 		"docker": st.Docker, "gpu_in_docker": st.GPUInDocker, "live": st.Live,
 		"job_ids": a.Runner.JobIDs(), "isolation": "egress-proxy",
+		"gamezone": st.Gamezone,
 	}
 }
 

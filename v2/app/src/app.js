@@ -48,6 +48,12 @@ function render(data) {
   text("s-gpu", s.gpu ? `${s.gpu}${cfg.share_gpu ? (s.gpu_in_docker ? " · available to renters" : " · not usable in Docker") : " · not offered to renters"}` : "No NVIDIA GPU found");
   text("s-temp", s.gpu_temp_c == null ? "—" : `${s.gpu_temp_c} °C (limit ${cfg.max_gpu_temp_c})`);
   text("s-jobs", String(s.jobs));
+  // Gamezone needs Windows Pro/Enterprise/Education + Hyper-V + GPU partitioning; other machines do container work only.
+  const gz = s.gamezone || {};
+  text("s-gz", gz.eligible ? "Eligible" : gz.edition || gz.reasons ? "Not eligible" : "Checking…");
+  const why = $("s-gz-why");
+  why.hidden = !!gz.eligible || !(gz.reasons && gz.reasons.length);
+  why.textContent = (gz.reasons || []).join(" ");
 
   // Only fill the limits form when it isn't being edited.
   if (!$("limits-form").contains(document.activeElement)) {
