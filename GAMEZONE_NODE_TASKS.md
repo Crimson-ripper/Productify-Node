@@ -31,13 +31,13 @@ game from **their own Steam account**. Test machine: Suryansh's RTX 4060 laptop.
 
 ## Phase 1 — Eligibility
 - [x] 1.1 Agent reports Windows edition, Hyper-V state, GPU-P support (`Get-VMHostPartitionableGpu`). Notes: internal/agent/gamezone*.go; sent as "gamezone" in hello + Status; rechecked every 10 min. Verified on this PC (Win 10 Home → not eligible, 3 reasons).
-- [~] 1.2 Backend stores `gamezone_eligible` + reasons; only eligible machines can take game sessions. Notes: backend stores rentals.gamezone (live on main b65eec7). Enforcement comes with game sessions in 4.1.
+- [x] 1.2 Backend stores `gamezone_eligible` + reasons; only eligible machines can take game sessions. Notes: stored on rentals.gamezone; POST /api/gamezone/node-sessions refuses ineligible machines (live, dfcdf73).
 - [x] 1.3 Host app shows eligibility and why not (e.g. "Windows Home — Gamezone needs Pro"). Notes: Gamezone line + reasons in the app status panel. Not yet in a released build.
 
 ## Phase 2 — Gaming VM on the host
 - [~] 2.1 Agent builds a base Windows VM (Hyper-V, Gen 2, GPU partition, driver files copied from host). Notes: v2/gamezone/gamezone-vm.ps1 drafted (PrepareBase/Start/Stop), UNTESTED; needs a base image made by hand (Win 11 Enterprise eval ISO). Agent wiring after the laptop test.
 - [~] 2.2 Per-session VM from a differencing disk / checkpoint; destroyed or reset after the session. Notes: Start uses a differencing disk, Stop deletes VM + disk. Untested.
-- [ ] 2.3 VM network isolated from the owner's LAN (same rules as the v2.1 egress proxy where possible). Notes: —
+- [~] 2.3 VM network isolated from the owner's LAN (same rules as the v2.1 egress proxy where possible). Notes: Hyper-V extended port ACLs in gamezone-vm.ps1 (deny LAN/link-local/CGNAT/IPv6 ULA, allow DNS+DHCP to gateway). Untested on real Hyper-V.
 
 ## Phase 3 — Streaming inside the VM
 - [ ] 3.1 Sunshine + virtual display driver installed in the base image; NVENC confirmed. Notes: —
@@ -45,8 +45,8 @@ game from **their own Steam account**. Test machine: Suryansh's RTX 4060 laptop.
 - [ ] 3.3 Reach the VM from PG Connect (direct UDP if possible, else the WireGuard path PG Connect already has). Notes: —
 
 ## Phase 4 — Backend + site
-- [ ] 4.1 Backend: start a game session on a Node machine → agent starts VM → session code for PG Connect. Notes: —
-- [ ] 4.2 Billing/metering for game sessions (same credit rules as instances; idle pause later). Notes: —
+- [~] 4.1 Backend: start a game session on a Node machine → agent starts VM → session code for PG Connect. Notes: agent game.start/stop (42797fd) + backend start/stop/join code live (dfcdf73), 6 endpoint tests. PG Connect connect returns 503 until Phase 3 gives host address + Sunshine pairing.
+- [x] 4.2 Billing/metering for game sessions (same credit rules as instances; idle pause later). Notes: sessions are instances with kind=game, so existing credits, credit-limit stop and reconcile apply (agent reports game_id). Price = listing price until Gamezone pricing is decided.
 - [ ] 4.3 Site: "Play on this machine" for eligible machines → code + PG Connect download. Notes: —
 
 ## Phase 5 — End-to-end test
