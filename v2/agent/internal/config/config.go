@@ -35,6 +35,8 @@ type Settings struct {
 	DiskGB       int     `json:"disk_gb"`
 	ShareGPU     bool    `json:"share_gpu"`
 	MaxGPUTempC  int     `json:"max_gpu_temp_c"`
+	// GamezoneBaseVHD is the owner's prepared Windows base image for Gamezone VMs (empty = no Gamezone).
+	GamezoneBaseVHD string `json:"gamezone_base_vhd,omitempty"`
 }
 
 // Paired reports whether the node has a listing to serve.
@@ -58,6 +60,9 @@ func (s Settings) Validate() error {
 	}
 	if s.MaxGPUTempC < 60 || s.MaxGPUTempC > 95 {
 		return fmt.Errorf("GPU temperature limit must be between 60 and 95 °C")
+	}
+	if v := s.GamezoneBaseVHD; v != "" && (!filepath.IsAbs(v) || !strings.EqualFold(filepath.Ext(v), ".vhdx")) {
+		return fmt.Errorf("Gamezone base image must be a full path to a .vhdx file")
 	}
 	return s.Limits(false).Validate()
 }

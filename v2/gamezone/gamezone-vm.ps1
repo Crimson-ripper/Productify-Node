@@ -65,6 +65,37 @@ function Copy-HostDriver([string]$vhd) {
   } finally { Dismount-VHD $vhd }
 }
 
+# Keep the renter off the owner's home network: deny all private/link-local addresses on the VM's
+# switch port, except DNS to the Hyper-V gateway (needed for internet). These ACLs live on the host's
+# virtual switch, so an admin inside the VM can't remove them. Same idea as the v2.1 egress proxy.
+$PrivateRanges = "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10"
+
+function Protect-HomeNetwork([string]$vmName) {
+  $hostIf = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object { $_.InterfaceAlias -eq "vEthernet ($Switch)" } | Select-Object -First 1
+  if (-not $hostIf) { throw "Can't find the host side of switch '$Switch'." }
+  $gw = $hostIf.IPAddress
+  $w = 10
+  foreach ($r in $PrivateRanges) {
+    foreach ($dir in "Outbound", "Inbound") {
+      Add-VMNetworkAdapterExtendedAcl -VMName $vmName -Action Deny -Direction $dir -RemoteIPAddress $r -Weight $w
+      $w++
+    }
+  }
+  foreach ($proto in "UDP", "TCP") {  # higher weight wins: DNS to the gateway only
+    Add-VMNetworkAdapterExtendedAcl -VMName $vmName -Action Allow -Direction Outbound -RemoteIPAddress "$gw/32" `
+      -Protocol $proto -RemotePort 53 -Stateful $true -Weight (100 + [int]($proto -eq "TCP"))
+  }
+  # DHCP with the gateway (lease renewals are unicast to it; replies come from its port 67).
+  Add-VMNetworkAdapterExtendedAcl -VMName $vmName -Action Allow -Direction Outbound -RemoteIPAddress "$gw/32" -Protocol UDP -RemotePort 67 -Weight 102
+  Add-VMNetworkAdapterExtendedAcl -VMName $vmName -Action Allow -Direction Inbound -RemoteIPAddress "$gw/32" -Protocol UDP -RemotePort 67 -LocalPort 68 -Weight 103
+  # Block IPv6 to the LAN too (link-local and unique-local); public IPv6 stays allowed.
+  foreach ($r in "fe80::/10", "fc00::/7") {
+    Add-VMNetworkAdapterExtendedAcl -VMName $vmName -Action Deny -Direction Outbound -RemoteIPAddress $r -Weight $w; $w++
+  }
+  Set-VMNetworkAdapter -VMName $vmName -DhcpGuard On -RouterGuard On -MacAddressSpoofing Off
+}
+
 function Start-Session {
   if (-not $Session) { throw "-Session is required." }
   if (-not (Test-Path $BaseVhd)) { throw "Base image not found: $BaseVhd" }
@@ -90,6 +121,8 @@ function Start-Session {
     -MinPartitionEncode 1 -MaxPartitionEncode ([uint64]($max.Encode * $f)) -OptimalPartitionEncode ([uint64]($max.Encode * $f)) `
     -MinPartitionDecode 1 -MaxPartitionDecode ([uint64]($max.Decode * $f)) -OptimalPartitionDecode ([uint64]($max.Decode * $f)) `
     -MinPartitionCompute 1 -MaxPartitionCompute ([uint64]($max.Compute * $f)) -OptimalPartitionCompute ([uint64]($max.Compute * $f))
+
+  Protect-HomeNetwork $name
 
   Start-VM $vm
   [pscustomobject]@{ vm = $name; gpu = $gpu.Name; cpus = $Cpus; memory_gb = $MemoryGB; disk = $disk } | ConvertTo-Json -Compress

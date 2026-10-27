@@ -29,6 +29,7 @@ type Agent struct {
 	GPU    GPUInfo
 	Log    *slog.Logger
 	Logs   *LogBuffer // recent lines for the desktop app; may be nil
+	Games  *GameVMs   // Gamezone VMs; nil when this build can't run them
 
 	mu           sync.Mutex
 	dockerReady  bool
@@ -103,7 +104,8 @@ func (a *Agent) Hello() map[string]any {
 func (a *Agent) Heartbeat() map[string]any {
 	st := a.Status()
 	// job_ids lets the backend stop billing for anything no longer running here.
-	m := map[string]any{"live": st.Live, "jobs": st.Jobs, "paused_reason": st.PausedReason, "job_ids": a.Runner.JobIDs()}
+	m := map[string]any{"live": st.Live, "jobs": st.Jobs, "paused_reason": st.PausedReason, "job_ids": a.Runner.JobIDs(),
+		"game_id": a.Games.Active()}
 	if st.GPUTempC != nil {
 		m["gpu_temp_c"] = *st.GPUTempC
 	}
@@ -123,6 +125,9 @@ func (a *Agent) Handle(ctx context.Context, req tunnel.Request) map[string]any {
 		}
 		if !st.Docker {
 			return fail(jobs.ErrNoDocker.Error())
+		}
+		if a.Games.Active() != "" { // one renter per machine, game or container
+			return fail(errGameBusy.Error())
 		}
 		if err := a.Runner.Start(ctx, req.JobID, req.Template); err != nil {
 			return fail(err.Error())
@@ -144,6 +149,17 @@ func (a *Agent) Handle(ctx context.Context, req tunnel.Request) map[string]any {
 			return fail(err.Error())
 		}
 		a.Log.Info("job stopped", "job", req.JobID)
+		return map[string]any{"ok": true}
+	case "game.start":
+		return a.startGame(ctx, req.JobID)
+	case "game.stop":
+		if a.Games == nil || a.Games.Run == nil {
+			return fail("unsupported")
+		}
+		if err := a.Games.Stop(ctx, req.JobID); err != nil {
+			return fail(err.Error())
+		}
+		a.Log.Info("game session stopped", "job", req.JobID)
 		return map[string]any{"ok": true}
 	}
 	return fail("unsupported")

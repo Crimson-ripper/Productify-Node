@@ -120,6 +120,7 @@ func serve(ctx context.Context, logOut io.Writer) error {
 		return store.Get().Limits(a.Status().GPUInDocker)
 	})
 	a.Runner.EgressDir = egressDir()
+	a.Games = agent.NewGameVMs(filepath.Join(egressDir(), "gamezone", "gamezone-vm.ps1"))
 
 	l, err := ipc.Listen(ipc.PipeName)
 	if err != nil {
