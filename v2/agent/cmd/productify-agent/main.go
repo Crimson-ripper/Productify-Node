@@ -51,7 +51,8 @@ func main() {
 	case "run":
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
-		if err := serve(ctx, os.Stderr); err != nil {
+		direct := len(os.Args) > 2 && os.Args[2] == "--direct"
+		if err := serve(ctx, os.Stderr, direct); err != nil {
 			fatal(err)
 		}
 	case "install":
@@ -109,10 +110,23 @@ func main() {
 }
 
 // serve runs the agent and its control pipe until ctx ends.
-func serve(ctx context.Context, logOut io.Writer) error {
+// With direct=true the agent runs inside a rented partner machine (e.g. Vast.ai): it pairs from
+// the PFY_RENTAL_ID / PFY_TOKEN / PFY_BACKEND environment set by the backend, goes live, and runs
+// renter commands on this machine itself (there is no Docker inside it).
+func serve(ctx context.Context, logOut io.Writer, direct bool) error {
 	store, err := config.Open(configPath())
 	if err != nil {
 		return err
+	}
+	if direct {
+		if _, err := store.Update(func(s *config.Settings) {
+			s.RentalID, s.Token, s.Live = os.Getenv("PFY_RENTAL_ID"), os.Getenv("PFY_TOKEN"), true
+			if b := os.Getenv("PFY_BACKEND"); b != "" {
+				s.BackendURL = b
+			}
+		}); err != nil {
+			return fmt.Errorf("direct mode needs PFY_RENTAL_ID and PFY_TOKEN: %w", err)
+		}
 	}
 	buf := agent.NewLogBuffer(slog.NewTextHandler(logOut, nil), 500)
 	a := &agent.Agent{Store: store, GPU: &agent.NvidiaSMI{}, Log: slog.New(buf), Logs: buf}
@@ -121,6 +135,9 @@ func serve(ctx context.Context, logOut io.Writer) error {
 	})
 	a.Runner.EgressDir = egressDir()
 	a.Games = agent.NewGameVMs(filepath.Join(egressDir(), "gamezone", "gamezone-vm.ps1"))
+	if direct {
+		a.Direct = &agent.DirectJobs{}
+	}
 
 	l, err := ipc.Listen(ipc.PipeName)
 	if err != nil {

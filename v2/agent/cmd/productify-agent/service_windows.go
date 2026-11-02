@@ -35,7 +35,7 @@ func (handler) Execute(_ []string, req <-chan svc.ChangeRequest, status chan<- s
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- serve(ctx, logFile) }()
+	go func() { done <- serve(ctx, logFile, false) }()
 	status <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 
 	for {

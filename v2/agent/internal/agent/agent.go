@@ -30,6 +30,7 @@ type Agent struct {
 	Log    *slog.Logger
 	Logs   *LogBuffer // recent lines for the desktop app; may be nil
 	Games  *GameVMs   // Gamezone VMs; nil when this build can't run them
+	Direct *DirectJobs // direct mode (inside a partner machine); nil on owners' PCs
 
 	mu           sync.Mutex
 	dockerReady  bool
@@ -91,12 +92,16 @@ func (a *Agent) Status() Status {
 func (a *Agent) Hello() map[string]any {
 	s := a.Store.Get()
 	st := a.Status()
+	jobIDs, isolation := a.Runner.JobIDs(), "egress-proxy"
+	if a.Direct != nil {
+		jobIDs, isolation = append(jobIDs, a.Direct.JobIDs()...), "partner-instance"
+	}
 	return map[string]any{
 		"agent_version": Version, "node_id": s.NodeID, "os": runtime.GOOS,
 		"gpu": a.GPU.Name(), "vram_mb": a.GPU.VRAMMB(), "cpu_cores": runtime.NumCPU(),
 		"cpu": CPUModel(), "ram_mb": RAMMB(),
 		"docker": st.Docker, "gpu_in_docker": st.GPUInDocker, "live": st.Live,
-		"job_ids": a.Runner.JobIDs(), "isolation": "egress-proxy",
+		"job_ids": jobIDs, "isolation": isolation,
 		"gamezone": st.Gamezone,
 	}
 }
@@ -104,7 +109,11 @@ func (a *Agent) Hello() map[string]any {
 func (a *Agent) Heartbeat() map[string]any {
 	st := a.Status()
 	// job_ids lets the backend stop billing for anything no longer running here.
-	m := map[string]any{"live": st.Live, "jobs": st.Jobs, "paused_reason": st.PausedReason, "job_ids": a.Runner.JobIDs(),
+	jobIDs := a.Runner.JobIDs()
+	if a.Direct != nil {
+		jobIDs = append(jobIDs, a.Direct.JobIDs()...)
+	}
+	m := map[string]any{"live": st.Live, "jobs": st.Jobs, "paused_reason": st.PausedReason, "job_ids": jobIDs,
 		"game_id": a.Games.Active()}
 	if st.GPUTempC != nil {
 		m["gpu_temp_c"] = *st.GPUTempC
@@ -115,6 +124,11 @@ func (a *Agent) Heartbeat() map[string]any {
 func fail(msg string) map[string]any { return map[string]any{"ok": false, "error": msg} }
 
 func (a *Agent) Handle(ctx context.Context, req tunnel.Request) map[string]any {
+	if a.Direct != nil {
+		if res, ok := a.directHandle(ctx, req.Type, req.JobID, req.Argv, req.Python, req.TimeoutS); ok {
+			return res
+		}
+	}
 	switch req.Type {
 	case "ping":
 		return map[string]any{"ok": true}
