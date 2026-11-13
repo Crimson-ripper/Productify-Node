@@ -60,3 +60,4 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .stats { grid-template-columns: 1fr 1fr; }
   .cols, .two { grid-template-columns: 1fr; }
 }
+.notice { margin: 0 0 12px; padding: 10px 12px; border: 1px solid #e3b9b9; border-left: 4px solid var(--danger); background: #fff7f7; color: var(--ink, #101112); line-height: 1.5; }

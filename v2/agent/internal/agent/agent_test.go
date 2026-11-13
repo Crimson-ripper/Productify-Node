@@ -200,3 +200,28 @@ func TestThermalGuard(t *testing.T) {
 		t.Errorf("did not resume after cooling: %+v", a.Status())
 	}
 }
+
+// A pairing code the site refuses (e.g. its listing was deleted) must not look connected.
+func TestRejectedPairingShowsInStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+	a := newAgent(t, srv.URL, false)
+	if !a.Status().Paired {
+		t.Fatal("a fresh pairing should count as paired")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { _ = a.Run(ctx); close(done) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for !a.Status().PairingRejected && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	st := a.Status()
+	if !st.PairingRejected || st.Paired {
+		t.Fatalf("after a rejection: paired=%v rejected=%v, want false/true", st.Paired, st.PairingRejected)
+	}
+	cancel()
+	<-done
+}

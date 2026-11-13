@@ -18,7 +18,8 @@
   <main id="pair-view" hidden>
     <section class="panel narrow">
       <h1>Pair this computer</h1>
-      <p class="muted">On productifynow.com go to <b>Seller studio → Listings → GPU</b>, click <b>Create pairing code</b>, and paste the code here. Your GPU, memory and CPU are filled in on the website automatically.</p>
+      <p id="pair-rejected" class="notice" role="alert" hidden>Productify didn't accept this computer's pairing code, so it isn't connected. The listing may have been deleted. Create a new pairing code and paste it below.</p>
+      <p class="muted">On productifynow.com go to <b>Seller studio → Machines</b>, click <b>Create pairing code</b>, and paste the code here. Your GPU, memory and CPU are filled in on the website automatically.</p>
       <form id="pair-form" class="form">
         <label>Pairing code<input id="code" required placeholder="r-1a2b3c4d5e.ptok_…" autocomplete="off" spellcheck="false"></label>
         <button class="primary" type="submit">Pair</button>

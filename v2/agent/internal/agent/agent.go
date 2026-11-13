@@ -4,6 +4,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"runtime"
 	"sync"
@@ -14,7 +15,7 @@ import (
 	"productifynode/internal/tunnel"
 )
 
-const Version = "2.1.0"
+const Version = "2.2.0"
 
 // GPUInfo is read from the machine; Temp returns ok=false when unknown.
 type GPUInfo interface {
@@ -28,18 +29,19 @@ type Agent struct {
 	Runner *jobs.Runner
 	GPU    GPUInfo
 	Log    *slog.Logger
-	Logs   *LogBuffer // recent lines for the desktop app; may be nil
-	Games  *GameVMs   // Gamezone VMs; nil when this build can't run them
+	Logs   *LogBuffer  // recent lines for the desktop app; may be nil
+	Games  *GameVMs    // Gamezone VMs; nil when this build can't run them
 	Direct *DirectJobs // direct mode (inside a partner machine); nil on owners' PCs
 
-	mu           sync.Mutex
-	dockerReady  bool
-	gpuInDocker  bool
-	pausedReason string // "", "seller", "thermal"
-	hotSince     time.Time
-	gamezone     GamezoneCheck
-	gamezoneAt   time.Time
-	events       func(map[string]any) // set by Run to send tunnel events
+	mu              sync.Mutex
+	dockerReady     bool
+	gpuInDocker     bool
+	pausedReason    string // "", "seller", "thermal"
+	hotSince        time.Time
+	gamezone        GamezoneCheck
+	gamezoneAt      time.Time
+	pairingRejected bool                 // the site refused the current pairing code
+	events          func(map[string]any) // set by Run to send tunnel events
 }
 
 // Probe refreshes Docker/GPU readiness. Call at start and periodically.
@@ -63,22 +65,25 @@ func (a *Agent) Probe(ctx context.Context) {
 
 // Status is shown in the desktop app.
 type Status struct {
-	Paired       bool          `json:"paired"`
-	Live         bool          `json:"live"`
-	PausedReason string        `json:"paused_reason"`
-	Docker       bool          `json:"docker"`
-	GPUInDocker  bool          `json:"gpu_in_docker"`
-	Jobs         int           `json:"jobs"`
-	GPU          string        `json:"gpu"`
-	GPUTempC     *int          `json:"gpu_temp_c"`
-	Gamezone     GamezoneCheck `json:"gamezone"`
+	Paired bool `json:"paired"`
+	// PairingRejected: the site refused this pairing code (e.g. the listing was deleted). The node
+	// then counts as not paired, so the app asks for a new code instead of looking connected.
+	PairingRejected bool          `json:"pairing_rejected"`
+	Live            bool          `json:"live"`
+	PausedReason    string        `json:"paused_reason"`
+	Docker          bool          `json:"docker"`
+	GPUInDocker     bool          `json:"gpu_in_docker"`
+	Jobs            int           `json:"jobs"`
+	GPU             string        `json:"gpu"`
+	GPUTempC        *int          `json:"gpu_temp_c"`
+	Gamezone        GamezoneCheck `json:"gamezone"`
 }
 
 func (a *Agent) Status() Status {
 	s := a.Store.Get()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	st := Status{Paired: s.Paired(), Live: s.Live && a.pausedReason == "", PausedReason: a.pausedReason,
+	st := Status{Paired: s.Paired() && !a.pairingRejected, PairingRejected: a.pairingRejected, Live: s.Live && a.pausedReason == "", PausedReason: a.pausedReason,
 		Docker: a.dockerReady, GPUInDocker: a.gpuInDocker, Jobs: a.Runner.Count(), GPU: a.GPU.Name(),
 		Gamezone: a.gamezone}
 	if t, ok := a.GPU.Temp(); ok {
@@ -113,8 +118,10 @@ func (a *Agent) Heartbeat() map[string]any {
 	if a.Direct != nil {
 		jobIDs = append(jobIDs, a.Direct.JobIDs()...)
 	}
+	// docker / gpu_in_docker change while connected (Docker Desktop started late, GPU check passes),
+	// so they ride on every heartbeat, not just hello; the site hides machines that can't run jobs.
 	m := map[string]any{"live": st.Live, "jobs": st.Jobs, "paused_reason": st.PausedReason, "job_ids": jobIDs,
-		"game_id": a.Games.Active()}
+		"game_id": a.Games.Active(), "docker": st.Docker, "gpu_in_docker": st.GPUInDocker}
 	if st.GPUTempC != nil {
 		m["gpu_temp_c"] = *st.GPUTempC
 	}
@@ -307,6 +314,9 @@ func (a *Agent) Run(ctx context.Context) error {
 				continue
 			}
 		}
+		a.mu.Lock()
+		a.pairingRejected = false // a new (or first) pairing code gets a fresh chance
+		a.mu.Unlock()
 		c := &tunnel.Client{BackendURL: s.BackendURL, RentalID: s.RentalID, Token: s.Token, Handler: a, Log: a.Log}
 		a.mu.Lock()
 		a.events = func(m map[string]any) { _ = c.Send(context.Background(), m) }
@@ -317,6 +327,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 		// Rejected pairing: wait for the seller to pair again (settings change).
 		a.Log.Error("tunnel stopped", "err", err)
+		a.mu.Lock()
+		a.pairingRejected = errors.Is(err, tunnel.ErrUnauthorized)
+		a.mu.Unlock()
 		for a.Store.Get().Token == s.Token {
 			select {
 			case <-ctx.Done():

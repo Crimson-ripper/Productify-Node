@@ -24,10 +24,11 @@ function render(data) {
   const paired = s.paired && !repairing;
   $("pair-view").hidden = paired;
   $("main-view").hidden = !paired;
+  $("pair-rejected").hidden = !s.pairing_rejected;
 
   const state = $("state");
   state.className = "state " + (s.paused_reason === "thermal" ? "hot" : s.live ? "live" : "off");
-  state.textContent = !s.paired ? "Not paired" : s.paused_reason === "thermal" ? "Cooling down" : s.live ? "Renting" : "Paused";
+  state.textContent = s.pairing_rejected ? "Code rejected" : !s.paired ? "Not paired" : s.paused_reason === "thermal" ? "Cooling down" : s.live ? "Renting" : "Paused";
   if (!paired) return;
 
   text("listing", cfg.rental_id);
